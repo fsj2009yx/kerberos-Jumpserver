@@ -22,6 +22,22 @@
 
 ---
 
+## 成员分工
+
+|    小组成员    |                         分工                         |
+| :------------: | :--------------------------------------------------: |
+| 成员 A（组长） |     负责 AS, TGS, V 的通信加密逻辑和 V 业务部署      |
+| 成员 B，成员 C | 负责 Client 部分的通信加密逻辑，Restful API 接口设计 |
+| 成员 D |                负责 Client WEBUI 设计                |
+
+---
+
+## 技术栈
+
+- Golang
+- typescript (Xterm.js)
+- python
+
 # 第一章　全局统一规范
 
 ## 1.1　设计原则与强制约束
@@ -272,6 +288,7 @@ struct Ker_Header {
 ```
 
 **注意事项**：
+
 - 日志中 **禁止记录任何明文密钥**（Kc、K_c, tgs、K_c, v 等）。若需记录密钥用于调试，只能记录其 SHA-256 摘要（前 8 字节的十六进制表示）
 - 日志中 **禁止记录明文 CLI 指令的完整内容**，只记录指令的哈希值和执行结果状态（成功/失败）
 - 加密性能敏感路径（AES 加解密、RSA 模幂）需记录 `DEBUG` 级别耗时日志，格式：`[elapsed=12.3ms]`
@@ -319,9 +336,9 @@ struct Ker_Header {
 
 > **核心约束：禁止调用任何第三方加解密库。** 包括但不限于 OpenSSL、PyCryptodome、javax.crypto、BouncyCastle、CryptoJS 等。所有加密相关功能（AES、SHA-256、HMAC、RSA）必须从算法原语开始手写实现。
 
-这个约束是课程设计的核心考核点，目的是让开发者真正理解每个算法的内部工作机制。因此本章对每个算法的实现路径、数据结构和接口进行了详细规范，开发者只需按照本文档的指导实现即可，无需从零摸索算法细节。
+加密模块独立于其他业务模块，位于 `common/crypto/` 目录下，便于单独编译测试
 
-加密模块独立于其他业务模块，位于 `common/crypto/` 目录下，便于单独编译、单独测试。每个算法有对应的单元测试文件，测试用例覆盖正常路径、边界条件和错误路径。
+每个算法有对应的单元测试文件，测试用例覆盖正常路径、边界条件和错误路径
 
 ### 2.0.1 注意事项
 
@@ -331,9 +348,15 @@ struct Ker_Header {
 
 - **字节填充**：例如 **PKCS7 填充**、**PKCS#1 v1.5 编码（签名填充）**
 - **字节序**：统一采用 **大端序**
-- **密文块：** 密文填充时 **全部转为 uint8/bytes 二进制流，禁止使用 hex 或其他编码**
+- **密文块：** 密文填充时 **全部转为 `uint8/bytes` 二进制流，禁止使用 `hex` 或其他编码**
+
+### 2.0.2 验收要求
 
 **算法验收标准**：以跑通根目录 `/test` 下对应的测试模块为底线，尽可能优化运算时间
+
+由于二进制无法打印，所以在运行测试文件时，按照控制台打印的要求输入密文的 Hex 字符串
+
+其他情况下密文统一使用 `uint8/bytes` 二进制流
 
 ---
 
@@ -341,7 +364,9 @@ struct Ker_Header {
 
 ### 2.1.1　算法背景
 
-AES（高级加密标准）是目前最广泛使用的对称加密算法。本项目使用 256 位密钥（32 字节），CBC（密码块链）工作模式。CBC 模式通过将前一个密文块与当前明文块进行 XOR 后再加密，使得相同的明文在不同位置产生不同的密文，有效抵御了 ECB 模式下的明文模式攻击。
+AES（高级加密标准）是目前最广泛使用的对称加密算法。本项目使用 **256 位密钥（32 字节），CBC（密码块链）工作模式**。
+
+CBC 模式通过将前一个密文块与当前明文块进行 XOR 后再加密，使得相同的明文在不同位置产生不同的密文，有效抵御了 ECB 模式下的明文模式攻击。
 
 AES-256 的核心参数：
 - **密钥长度**：256 位（32 字节）
@@ -472,14 +497,16 @@ H4=0x510e527f, H5=0x9b05688c, H6=0x1f83d9ab, H7=0x5be0cd19
 
 ### 2.4.1　算法背景
 
-RSA 是最广泛使用的非对称加密算法。安全性基于大整数分解的计算困难性。在本项目中，RSA 仅用于数字签名（不用于加密数据，因为对称加密效率远高于 RSA）：Client 对每条消息用自己的 RSA 私钥签名，V 服务器用 Client 证书中的公钥验签，确保消息的不可否认性（即 Client 无法否认发送过该消息）。
+RSA 是最广泛使用的非对称加密算法。安全性基于大整数分解的计算困难性。
+
+在本项目中，**RSA 仅用于数字签名 Client** 对每条消息用自己的 RSA 私钥签名，V 服务器用 Client 证书中的公钥验签，确保消息的不可否认性（即 Client 无法否认发送过该消息）。
 
 RSA-2048 的参数：
 - **模数 n**：2048 位（256 字节）= 两个 1024 位素数 p 和 q 的乘积
 - **公钥指数 e**：通常为 65537（`0x010001`）
 - **私钥指数 d**：满足 `e*d ≡ 1 (mod φ(n))`，φ(n) = (p-1)(q-1)
 - **签名过程**：`s = m^d mod n`（其中 m 是经 PKCS#1 v1.5 编码后的哈希值）
-- **验签过程**：`m' = s^e mod n`，比较 m' 是否等于期望的 PKCS#1 v1.5 编码
+- **验签过程**：`m' = s^e mod n`，比较 m' 是否等于期望的 `PKCS#1 v1.5` 编码
 
 ### 2.4.2　大整数结构体
 
@@ -564,7 +591,7 @@ EM = 0x00 || 0x01 || PS || 0x00 || DigestInfo || Hash
 
 - `Hash`：32 字节 SHA-256 摘要
 
-验签时，公钥恢复出 EM 后，检查 `EM[0]=0x00`、`EM[1]=0x01`，找到第一个非 `0xFF` 字节位置（必须为 `0x00`），之后 19 字节须匹配 DigestInfo 前缀，最后 32 字节即为签名中携带的哈希值，与消息重新计算的哈希比对。
+验签时，公钥恢复出 EM 后，检查 `EM[0]=0x00`、`EM[1]=0x01`，找到第一个非 `0xFF` 字节位置（必须为 `0x00`），之后 19 字节须匹配 `DigestInfo` 前缀，最后 32 字节即为签名中携带的哈希值，与消息重新计算的哈希比对。
 
 ### 2.4.5　密钥生成策略
 
@@ -622,26 +649,6 @@ typedef struct {
     uint32_t        total_auth_fail;     // 认证失败次数
 } AS_State;
 ```
-
-## 3.2　线程模型
-
-```
-主线程（Accept Loop）
-    │
-    ├─ accept() 新连接
-    │
-    ▼
-工作队列（线程安全阻塞队列，存放 fd）
-    │
-    ├─ Worker Thread 1 ──→ 处理 AS_REQ → 构造 AS_REP → 发送 → 关闭 fd
-    ├─ Worker Thread 2 ──→ 同上
-    ├─ ...
-    └─ Worker Thread N（N 由配置文件中 thread_pool_size 决定，默认 8）
-
-WebUI 线程（独立运行，只读访问 AS_State，加读锁）
-```
-
-**连接模型**：AS 采用 "短连接" 模式，每次 AS_REQ/AS_REP 交互完成后即关闭 TCP 连接。这样设计是因为 AS 阶段仅在客户端启动时进行一次（或 TGT 过期后重新登录），不需要长连接。
 
 ## 3.3　核心处理函数
 
@@ -710,7 +717,7 @@ int32_t as_send_error(int fd, int32_t err_code, uint32_t seq, uint32_t timestamp
 
 ## 3.4　WebUI API 接口
 
-AS 的 WebUI 运行在独立 HTTP 端口（默认 9881），提供只读的监控和调试接口。
+AS 的 WebUI 运行在独立 HTTP 端口（默认 9881），提供只读的监控和调试接口, 不做控制
 
 | 路径 | 方法 | 说明 | 返回 JSON 关键字段 |
 |------|------|------|-------------------|
@@ -726,9 +733,11 @@ AS 的 WebUI 运行在独立 HTTP 端口（默认 9881），提供只读的监�
 
 ## 4.0　模块职责概述
 
-TGS 是 Kerberos 单点登录（SSO）的核心。它接受 Client 持有的 TGT，在不重新要求用户提供密码的情况下，为客户端签发访问特定服务（V）所需的 Service Ticket。TGS 的存在使得系统可以横向扩展：无论添加多少个 V 服务器，Client 只需向同一个 TGS 请求对应的票据，而无需为每个服务重新认证。
+TGS 是 Kerberos 单点登录（SSO）的核心。
 
-TGS 与 AS 不同的是，TGS 不需要知道 Client 的原始密码（Kc），它只需要持有与 AS 共享的密钥 `K_tgs`（用于解密 TGT）和与各 V 服务器共享的密钥 `K_v`（用于加密 Ticket_V）。
+它接受 Client 持有的 TGT，在不重新要求用户提供密码的情况下，为客户端签发访问特定服务（V）所需的 Service Ticket。
+
+TGS 的存在使得系统可以横向扩展：无论添加多少个 V 服务器，Client 只需向同一个 TGS 请求对应的票据，而无需为每个服务重新认证。
 
 ## 4.1　内部数据结构
 
@@ -795,6 +804,8 @@ int32_t krb_handle_tgs_req(int client_fd, uint32_t client_ip, TGS_State* state);
 
 ## 4.3　WebUI API 接口
 
+TGS 的 WEBUI 同样单独暴露在 9881 端口
+
 | 路径 | 方法 | 说明 | 返回关键字段 |
 |------|------|------|-------------|
 | `GET /api/status` | GET | TGS 节点状态 | `{node_id, uptime_s, total_ticket_v_issued, total_auth_fail}` |
@@ -805,151 +816,71 @@ int32_t krb_handle_tgs_req(int client_fd, uint32_t client_ip, TGS_State* state);
 
 # 第五章　V（应用服务器）模块设计
 
-## 5.0　模块职责概述
+## 5.1　模块职责概述
 
-V 是最终向用户提供业务服务的节点，同时也是安全防线的最后一道关卡。V 的设计体现了 "零信任"（Zero Trust）理念：不因为一个 Client 已经通过了 AP 认证就完全信任其后续的每条消息，而是对 **每一条 CLI 指令** 都进行 HMAC 完整性验证和 RSA 不可否认性验证。
+V 是最终向用户提供业务服务的节点，同时也是安全防线的最后一道关卡。V 的设计体现 "零信任"（Zero Trust）理念：不因为一个 Client 已经通过了 AP 认证就完全信任其后续的每条消息，而是对每一个业务报文都进行数字签名
 
 这种 "一次授权，动态验签" 的设计意味着：
 - 即使攻击者截获了 AP 认证完成后的 Session Key，也无法伪造新的 CLI 指令（因为没有 Client 的 RSA 私钥）
 - 即使 Client 的 Session Key 泄露，Client 也无法否认自己签名过的指令（RSA 私钥保证不可否认性）
 
-## 5.1　内部数据结构
+## 5.2 业务时序图展示
 
-```c
-// 每个 Client 对应的 Session（AP 认证完成后建立）
-typedef struct {
-    uint64_t  id_client;
-    uint8_t   k_cv[32];          // 由 Ticket_V 中恢复的 Session Key
-    uint32_t  ticket_expire;     // Ticket_V 的过期时间（Unix 时间戳）
-    Cert_t    client_cert;       // Client 的证书（含公钥，用于 RSA 验签）
-    uint32_t  client_ip;         // Client 的 IP（来自 AP_REQ 的 socket 层）
-    AntiReplay_Ctx replay_ctx;   // 每个 Session 独立的防重放上下文（业务消息用）
-    // 业务统计
-    uint32_t  total_cmds_received;
-    uint32_t  total_cmds_accepted;
-    time_t    session_start_time;
-    time_t    last_cmd_time;
-    // 活跃标志
-    int       is_active;         // 0 = 未使用，1 = 活跃
-    pthread_mutex_t sess_lock;   // 每个 Session 独立的互斥锁
-} V_Session;
+在后台启动一个 PTY 伪终端，拿到 `APP_REQ` 中的 Command 并且执行，将返回的 ANSI 序列封装进 `APP_REP` 并转发回去
 
-// V 全局状态
-typedef struct {
-    uint8_t   k_v[32];           // 与 TGS 共享的长期密钥（用于解密 Ticket_V）
-    RSA_Key_t v_priv_key;        // V 自身 RSA 私钥（用于 AP_REP 签名）
-    Cert_t    v_cert;
-    V_Session sessions[16];      // 最多同时支持 16 个活跃 Session
-    AntiReplay_Ctx ap_replay_ctx; // AP_REQ 阶段的防重放上下文
-    pthread_mutex_t sessions_lock;
-    // 命令日志（环形缓冲）
-    char      cmd_log[1024][256]; // 最近 1024 条命令记录
-    uint32_t  cmd_log_head;
-    pthread_mutex_t cmd_log_lock;
-} V_State;
+同时为了审计，将用户和执行命令按流日志方式写入数据库，并提供 WEB API 接口
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client (前端/终端)
+    participant V as Server (V Backend)
+    participant P as PTY (系统子进程)
+    participant D as Audit DB (审计数据库)
+
+    rect rgb(240, 248, 255)
+    Note over C, D: 阶段一：指令下发与前置安全校验
+    C->>V: APP_REQ [Cipher_Data + RSA_Sign_c]
+    Note right of V: 优先验签 (Early Drop)<br/>AES 解密提取 Command
+    V->>D: 写入基础审计 (User, Cmd, 状态:进行中)
+    V->>P: 唤起 PTY 伪终端执行 Command
+    end
+
+    rect rgb(255, 250, 240)
+    Note over C, D: 阶段二：全双工流式执行与异步录像
+    loop 进程存活期间
+        P-->>V: 持续吐出原始 ANSI 二进制流
+        par 录像持久化 (I/O 解耦)
+            V-xD: 异步追加 Stream Log (Session_ID, Raw Buffer)
+        and 实时回显链路
+            Note right of V: 重新封包加密<br/>追加 RSA_Sign_v
+            V->>C: APP_REP [Encrypted ANSI Buffer]
+            Note left of C: xterm.js 实时渲染<br/>坐标跳动与颜色
+        end
+    end
+    V->>D: 更新基础审计 (状态:已结束, Exit_Code)
+    end
+
+    rect rgb(245, 245, 245)
+    Note over C, D: 阶段三：Web API 审计回放查询
+    C->>V: GET /api/audit/stream?session_id=xxx
+    V->>D: 检索目标会话的所有 ANSI 块
+    D-->>V: 返回按时间戳排序的 Buffer
+    V-->>C: JSON 响应 (包含 Base64 编码的流)
+    Note left of C: 管理员前端播放录像
+    end
 ```
 
-## 5.2　AP 认证处理函数
+## 5.3 WEBUI API 接口
 
-### 5.2.1　`krb_handle_ap_req()` — AP 认证主处理函数
-
-```c
-int32_t krb_handle_ap_req(int client_fd, uint32_t client_ip, V_State* state);
-```
-
-**执行步骤详解**：
-
-1. **收包、防重放**：同前述各节点逻辑，校验 `msg_type == 0x05`。
-
-2. **解析 AP_REQ Payload**：依次读取：
-   - `Ticket_Len` + `Ticket_V`（密文）
-   - `Auth_Len` + `Authenticator_c`（密文）
-   - `Sig_Len` + `Signature_c`（RSA 签名）
-
-3. **解密 Ticket_V**：用 `K_v` 解密，得到 `{K_c_v, ID_Client, AD_c, ID_V, TS4, Lifetime}`。失败记录 SECURITY 日志。
-
-4. **验证 Ticket 有效期**：`TS4 + Lifetime > now()`。
-
-5. **解密 Authenticator_c**：用 Ticket 中的 `K_c_v` 解密，得到 `{ID_Client, AD_c, TS5}`。
-
-6. **比对字段**：`auth.ID_Client == ticket.ID_Client`，`auth.AD_c == client_ip`，TS5 防重放。
-
-7. **RSA 验签**（核心不可否认步骤）：
-   - 调用 `sha256(authenticator_c_cipher, auth_cipher_len, msg_hash)`（对 Authenticator_c **密文** 求哈希，而非明文）
-   - 调用 `cert_find_by_id(id_client, ...)` 获取 Client 证书
-   - 调用 `rsa_verify(msg_hash, 32, &client_pub_key, signature_c, sig_len)`
-   - 若返回 `ERR_RSA_VERIFY_FAIL`，记录 SECURITY 日志（含 client_ip、client_id、时间戳），**立即拒绝请求**，不建立 Session
-
-8. **建立 Session**：找到空闲的 `V_Session` 槽位（`is_active == 0`），填入 `K_c_v`、`ticket_expire`、`client_cert`、`client_ip`，设置 `is_active = 1`，初始化 Session 级别的防重放上下文。
-
-9. **构造 AP_REP**：
-   - 构造 `AP_REP_Inner = {TS5 + 1}`（证明 V 正确解密了 Authenticator，且不是重放）
-   - 用 `K_c_v` AES 加密得到 `Enc_Part`
-   - 计算 `SHA256(Enc_Part)` 得到 `ap_rep_hash`
-   - 用 V 自身 RSA 私钥签名：`Signature_v = RSA_Sign(ap_rep_hash, V_priv_key)`
-   - 拼装 Payload：`Cipher_Len || Enc_Part || Sig_Len || Signature_v`
-
-10. **封包发送 AP_REP**，记录 INFO 日志。
-
-### 5.2.2　`krb_handle_business_msg()` — 业务消息处理函数
-
-AP 认证完成后，TCP 连接保持长连接。Client 后续发来的业务消息（`msg_type == 0x07`）由此函数处理：
-
-```c
-int32_t krb_handle_business_msg(int client_fd, uint32_t client_ip, V_State* state);
-```
-
-业务消息 Payload 格式（详见第七章）：
-
-```
-Auth_Len(4B) || Authenticator_c_cipher(变长)
-Cipher_Cmd_Len(4B) || Cipher_Cmd(变长)
-Sig_Len(4B) || Signature_c(变长)
-MAC_Len(4B) || MAC(32B)
-```
-
-**处理步骤**：
-
-1. **定位 Session**：根据 socket 的 `client_ip` 和解密后的 Authenticator 中的 `ID_Client` 找到对应的 `V_Session`。
-
-2. **验证 Session 有效期**：`session.ticket_expire > now()`，若过期则要求 Client 重新认证。
-
-3. **HMAC 验证（完整性检查）**：
-   - 计算 `HMAC-SHA256(K_c_v, Authenticator_cipher || Cipher_Cmd)`
-   - 与报文中的 `MAC` 字段比对（时序安全比较）
-   - 失败时返回 `ERR_HMAC_MISMATCH`，记录 SECURITY 日志
-
-4. **RSA 验签（不可否认性验证）**：
-   - 计算 `SHA256(Cipher_Cmd)`（对指令密文求哈希）
-   - 调用 `rsa_verify(hash, 32, &session->client_cert.pub_key, Signature_c, sig_len)`
-   - 失败时返回 `ERR_RSA_VERIFY_FAIL`，记录 SECURITY 日志，**不执行任何操作**
-
-5. **解密 Cipher_Cmd**：用 `K_c_v` AES 解密得到 CLI 指令明文。
-
-6. **CLI 白名单校验**：
-
-   | 允许的指令 | 说明 |
-   |-----------|------|
-   | `echo <message>` | 回显消息，最大长度 256 字节 |
-   | `status` | 返回 V 服务器当前状态（在线用户数、系统时间等）|
-   | `list_sessions` | 列出当前所有活跃 Session 的 Client ID |
-   | `ping` | 返回 `pong`，用于测试连通性 |
-   | `get_time` | 返回服务器当前 Unix 时间戳 |
-
-   任何不在白名单中的指令一律拒绝，记录 SECURITY 日志（含指令内容的 SHA-256 哈希）。
-
-7. **执行指令并构造响应**：执行白名单内的指令逻辑（无需 fork/exec，全部在进程内实现），将响应字符串 AES 加密后附 HMAC 发回 Client。
-
-## 5.3　WebUI API 接口
-
-| 路径 | 方法 | 说明 | 返回关键字段 |
-|------|------|------|-------------|
-| `GET /api/status` | GET | V 节点状态 | `{node_id, uptime_s, active_sessions, total_cmds, total_rejected_cmds}` |
-| `GET /api/auth_log?limit=100` | GET | AP 认证日志 | `{logs: [{ts, client_id, client_ip, result, rsa_verify_result}]}` |
-| `GET /api/cmd_log?limit=100` | GET | 命令执行日志 | `{logs: [{ts, client_id, cmd_hash, cmd_plain, hmac_ok, rsa_ok, result}]}` |
-| `GET /api/sessions` | GET | 活跃 Session 列表 | `{sessions: [{client_id, client_ip, k_cv_sha256, expire_at, last_cmd_ts, total_cmds}]}` |
-| `GET /api/cert/:id` | GET | 客户端证书 | `{id, public_key:{n,e}, expire, sign}` |
-| `POST /api/verify_cert` | POST | 手动验证证书（调试用）| `{id, result:"ok"/"fail", reason}` |
+| 路径                          | 方法 | 说明                   | 返回关键字段                                                 |
+| ----------------------------- | ---- | ---------------------- | ------------------------------------------------------------ |
+| `GET /api/status`             | GET  | V 节点状态             | `{node_id, uptime_s, active_sessions, total_cmds, total_rejected_cmds}` |
+| `GET /api/auth_log?limit=100` | GET  | AP 认证日志            | `{logs: [{ts, client_id, client_ip, result, rsa_verify_result}]}` |
+| `GET /api/cmd_log?limit=100`  | GET  | 命令执行日志           | `{logs: [{ts, client_id, cmd_hash, cmd_plain, hmac_ok, rsa_ok, result}]}` |
+| `GET /api/sessions`           | GET  | 活跃 Session 列表      | `{sessions: [{client_id, client_ip, k_cv_sha256, expire_at, last_cmd_ts, total_cmds}]}` |
+| `GET /api/cert/:id`           | GET  | 客户端证书             | `{id, public_key:{n,e}, expire, sign}`                       |
+| `POST /api/verify_cert`       | POST | 手动验证证书（调试用） | `{id, result:"ok"/"fail", reason}`                           |
 
 ---
 
@@ -976,7 +907,7 @@ STATE_TGS_DONE (持有 Ticket_V 和 K_c,v)
     │── client_do_ap()
     ↓
 STATE_V_CONNECTED (Session 建立，可发送业务消息)
-    │── client_send_cmd() (可反复调用)
+    │── client_app_req() (可反复调用)
     │
     ├── (Ticket_V 过期) ──→ STATE_TGS_DONE (重走 TGS + AP)
     ├── (TGT 过期)     ──→ STATE_INIT     (重走全流程)
@@ -985,152 +916,113 @@ STATE_V_CONNECTED (Session 建立，可发送业务消息)
 STATE_ERROR (任何不可恢复错误) ──→ 展示错误信息，等待用户重新登录
 ```
 
+## 6.2 时序图展示
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Web as WEBUI/Electron (客户端界面)
+    participant C as Client (本地核心代理)
+    participant AS as AS (认证服务器)
+    participant TGS as TGS (票据授权服务器)
+    participant V as V (目标堡垒机)
+
+    Note over C: 初始状态: STATE_INIT
+
+    Web->>C: POST /api/login {username}
+    Note right of Web: 用户点击登录，触发 Kerberos 核心全链路
+    
+    rect rgb(240, 248, 255)
+    Note right of C: 阶段 1：AS 交互 (获取 TGT)
+    C->>AS: client_do_as() [发送 AS_REQ]
+    AS-->>C: 返回 AS_REP (含 TGT & K_c,tgs)
+    Note over C: 状态跃迁: STATE_AS_DONE
+    end
+
+    rect rgb(255, 250, 240)
+    Note right of C: 阶段 2：TGS 交互 (获取服务票据)
+    C->>TGS: client_do_tgs() [发送 TGS_REQ]
+    TGS-->>C: 返回 TGS_REP (含 Ticket_V & K_c,v)
+    Note over C: 状态跃迁: STATE_TGS_DONE
+    end
+
+    rect rgb(245, 245, 245)
+    Note right of C: 阶段 3：AP 交互 (互认证)
+    C->>V: client_do_ap() [发送 AP_REQ]
+    V-->>C: 返回 AP_REP (验证通过)
+    Note over C: 状态跃迁: STATE_V_CONNECTED
+    end
+
+    C-->>Web: 返回 JSON (cert_client.json)
+
+    rect rgb(230, 230, 250)
+    Note right of C: 阶段 4：业务指令执行 (EtS 认证加密)
+    Web->>C: POST /api/exec {command / payload}
+    Note right of C: 使用 K_c_v 进行 AES 加密<br/>追加 RSA_Sign_c 外层签名
+    C->>V: client_app_req() [发送 APP_REQ]
+    Note right of V: V 优先验签，随后解密并挂载 PTY 执行
+    V-->>C: 返回 APP_REP [含执行结果与 RSA_Sign_v]
+    Note right of C: C 优先验签，解密后提取输出
+    C-->>Web: 业务明文结果渲染
+    end
+
+    rect rgb(240, 255, 240)
+    Note over Web, C: 业务轮询与安全审计
+    Web->>C: GET /api/state
+    C-->>Web: {state, keys_sha256, expires, seq_num}
+    
+    Web->>C: GET /api/cert
+    C-->>Web: 本地 Client 证书 (cert_client.json)
+    
+    C->>Web: SSE /api/logs 底层报文追踪日志 (含 cipher_hex, verify_result)
+    end
+    
+    rect rgb(255, 240, 240)
+    Note over C, V: 会话降级与自愈逻辑 (后台静默处理)
+    alt Ticket_V 过期
+        Note over C: 状态回退: STATE_TGS_DONE
+        C->>TGS: 自动重新请求 Ticket_V
+    else TGT 过期或断网
+        Note over C: 状态回退: STATE_INIT
+        C-->>Web: WebSocket / 轮询通知登录态失效
+    end
+    end
+```
+
+
+
 ## 6.2　内部数据结构
 
-```c
-typedef enum {
-    STATE_INIT = 0,
-    STATE_AS_DONE,
-    STATE_TGS_DONE,
-    STATE_V_CONNECTED,
-    STATE_ERROR,
-} ClientFSMState;
-
-typedef struct {
-    // 身份信息
-    uint64_t       id_client;        // 本 Client 的唯一 ID（与证书中 id 字段对应）
-    uint8_t        kc[32];           // 与 AS 共享的长期对称密钥（离线配置）
-    RSA_Key_t      client_priv_key;  // 本 Client 的 RSA 私钥
-    Cert_t         client_cert;      // 本 Client 的证书
-
-    // 状态机
-    ClientFSMState state;
-
-    // 阶段一结果（AS 阶段获得）
-    uint8_t        k_c_tgs[32];      // Session Key（与 TGS 共享）
-    uint8_t        ticket_tgs[512];  // Ticket_TGS 密文（原样保存，透传给 TGS）
-    uint32_t       ticket_tgs_len;
-    uint32_t       tgt_expire;       // TGT 过期时间（TS2 + Lifetime）
-
-    // 阶段二结果（TGS 阶段获得）
-    uint8_t        k_c_v[32];        // Session Key（与 V 共享）
-    uint8_t        ticket_v[512];    // Ticket_V 密文（原样保存，透传给 V）
-    uint32_t       ticket_v_len;
-    uint32_t       ticket_v_expire;  // Ticket_V 过期时间（TS4 + Lifetime）
-
-    // 序列号管理
-    uint32_t       seq_num;          // 单调递增，每发一个报文自增
-
-    // 通信日志（用于 WebUI 展示，环形缓冲）
-    CommLogEntry   comm_log[200];
-    uint32_t       comm_log_head;
-    pthread_mutex_t log_lock;
-} Client_Ctx;
-```
+//（参考第九章报文格式定义）
 
 ## 6.3　核心流程函数
 
-### 6.3.1　`client_do_as()` — AS 阶段
-
-```c
-int32_t client_do_as(Client_Ctx* ctx, const char* as_host, uint16_t as_port);
-```
-
-1. TCP 连接到 AS
-2. 构造 AS_REQ Payload：`{ID_Client(8B大端) || ID_TGS(4B大端) || TS1=now()(4B大端)}`
-3. `krb_pack(0x01, ctx->seq_num++, time(NULL), payload, payload_len, ...)` → `send()`
-4. 接收 AS_REP：收首部，校验 `msg_type == 0x02`，收 Payload
-5. 读取 `Cipher_Len(4B大端)`，读取 `Enc_Part`
-6. `aes256_cbc_decrypt(Enc_Part, cipher_len, Kc=ctx->kc, inner_plain, &inner_len)`
-7. 从 `inner_plain` 解析：前 40 字节为 `AS_REP_Inner`（含 K_c, tgs），之后 4 字节为 `Ticket_Len`，之后 `Ticket_Len` 字节为 `Ticket_TGS` 密文
-8. 保存 `K_c,tgs` 到 `ctx->k_c_tgs`，保存 `Ticket_TGS` 密文到 `ctx->ticket_tgs`，计算 `ctx->tgt_expire = AS_REP_Inner.ts2 + AS_REP_Inner.lifetime`
-9. 设置 `ctx->state = STATE_AS_DONE`
-10. 关闭 TCP 连接，记录通信日志（明文 / 密文 Hex / 时间戳）
-
-### 6.3.2　`client_do_tgs()` — TGS 阶段
-
-```c
-int32_t client_do_tgs(Client_Ctx* ctx, const char* tgs_host, uint16_t tgs_port, uint32_t id_v);
-```
-
-1. TCP 连接到 TGS
-2. 生成随机 IV，构造 `Authenticator_c` 明文：`{ID_Client || AD_c=local_ip || TS3=now()}`
-3. `aes256_cbc_encrypt(auth_plain, 16, K_c_tgs, auth_cipher, &auth_cipher_len)`
-4. 拼装 TGS_REQ Payload：`ID_V(4B) || Ticket_Len(4B) || Ticket_TGS(密文) || Auth_Len(4B) || Authenticator_cipher`
-5. 封包、发送
-6. 接收 TGS_REP，读取 `Cipher_Len`，读取 `Enc_Part`
-7. `aes256_cbc_decrypt(Enc_Part, K_c_tgs, inner_plain, ...)` → 解析 `TGS_REP_Inner`（含 K_c, v）和 `Ticket_V` 密文
-8. 保存 `K_c,v` 和 `Ticket_V` 密文，计算 `ticket_v_expire`
-9. 设置 `ctx->state = STATE_TGS_DONE`
-
-### 6.3.3　`client_do_ap()` — AP 阶段（含 RSA 签名）
-
-```c
-int32_t client_do_ap(Client_Ctx* ctx, const char* v_host, uint16_t v_port);
-```
-
-1. TCP 连接到 V（此连接保持长连接，用于后续业务消息）
-2. 构造 `Authenticator_c` 明文：`{ID_Client || AD_c || TS5=now()}`，用 `K_c,v` 加密得 `auth_cipher`
-3. **RSA 签名**：`sha256(auth_cipher, auth_cipher_len, hash)` → `rsa_sign(hash, 32, ctx->client_priv_key, sig, &sig_len)`
-4. 拼装 AP_REQ Payload：`Ticket_V_Len || Ticket_V || Auth_Len || auth_cipher || Sig_Len || sig`
-5. 封包、发送
-6. 接收 AP_REP，读取 `Cipher_Len`，读取 `Enc_Part`，读取 `Sig_Len`，读取 `Signature_v`
-7. **验证 V 的 RSA 签名**：`sha256(Enc_Part, ..., hash)` → `rsa_verify(hash, V_pub_key, Signature_v, sig_len)`，失败返回错误
-8. 解密 `Enc_Part`：得到 `{TS5_plus_1}`，验证 `TS5 + 1 == TS5_plus_1`（证明 V 真正解密成功）
-9. 双向认证完成，设置 `ctx->state = STATE_V_CONNECTED`，保存 V 的 TCP 连接 fd
-
-### 6.3.4　`client_send_cmd()` — 发送业务消息
-
-```c
-int32_t client_send_cmd(
-    Client_Ctx* ctx,
-    const char* cmd,          // 明文 CLI 指令字符串
-    char*       resp_buf,     // 响应输出缓冲区（调用方分配）
-    uint32_t*   resp_len      // 响应字节数
-);
-```
-
-1. 验证 `ctx->state == STATE_V_CONNECTED`，检查 Session 未过期
-2. 构造新的 `Authenticator_c`（含当前时间戳，防止指令重放）并加密
-3. `aes256_cbc_encrypt(cmd, strlen(cmd), K_c_v, cipher_cmd, &cipher_cmd_len)` — 加密指令
-4. **RSA 签名指令密文**：`sha256(cipher_cmd, ..., hash)` → `rsa_sign(hash, ctx->client_priv_key, sig, ...)`
-5. **计算 HMAC**：`hmac_sha256(K_c_v, auth_cipher || cipher_cmd, mac)`
-6. 拼装业务消息 Payload，封包发送
-7. 接收响应，解密，返回明文响应
-8. 更新通信日志（明文指令、密文 Hex、签名 Hex、响应）
+//
 
 ## 6.4　SSO 复用逻辑
 
-```c
-// 在发送每条业务消息前调用，决定是否需要重认证
-int32_t client_ensure_session(Client_Ctx* ctx, const char* tgs_host, uint16_t tgs_port,
-                               const char* v_host, uint16_t v_port, uint32_t id_v) {
-    uint32_t now = (uint32_t)time(NULL);
-    if (ctx->state == STATE_V_CONNECTED && ctx->ticket_v_expire > now + 60) {
-        return KRB_OK;  // Session 仍有效，直接使用
-    }
-    if (ctx->state >= STATE_AS_DONE && ctx->tgt_expire > now + 60) {
-        // TGT 仍有效，只需重走 TGS + AP
-        client_do_tgs(ctx, tgs_host, tgs_port, id_v);
-        client_do_ap(ctx, v_host, v_port);
-        return KRB_OK;
-    }
-    // TGT 也过期，需要重新登录（提示用户输入密码重新走 AS 阶段）
-    return ERR_TICKET_EXPIRED;
-}
-```
+//
 
 ## 6.5　WebUI API 接口（Client）
 
+注意，Client 前端只需实现以下 web API 的对接，其他服务器的 Web API 各自部署了 WEBUI 做监控和调试，不对外开放
+
+client WEB API 监听 9883 端口：
+
 | 路径 | 方法 | 说明 | 请求/返回 |
 |------|------|------|-----------|
-| `POST /api/login` | POST | 触发 AS → TGS → AP 三阶段认证 | 请求：`{username}` 返回：`{state, tgt_expire, tv_expire}` |
-| `GET /api/state` | GET | 当前 Client 状态 | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire, seq_num}` |
-| `POST /api/send_cmd` | POST | 发送 CLI 指令 | 请求：`{cmd}` 返回：`{cmd_plain, cipher_hex, sig_hex, mac_hex, response, verify_result}` |
-| `GET /api/cert` | GET | 本 Client 证书 | `{id, public_key:{n,e}, expire, sign}` |
-| `GET /api/comm_log?limit=50` | GET | 通信记录（最近 N 条）| `{logs: [{ts, type, plain, cipher_hex, sig_hex, verify_result, rsa_ok}]}` |
+| `POST /api/login` | POST | 触发 AS → TGS → AP 三阶段认证 | 请求：`{username,password}` 返回：`{state, tgt_expire, tv_expire}` |
+| `GET /api/state` | GET | 当前 Client 状态 | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}` |
+| `GET /api/cert` | GET | 本 Client 证书 | `{id,issuer, public_key:{n,e}, expire, sign}` |
+| `SSE /api/logs` | SSE | 通信封包记录(实时回传 WEBUI) | `{logs: [{ts, type, packet_hex}]}` |
 
----
+## 6.6 UI 设计
+
+对收发的每一个包，应该将完整封包转成 Hex 并通过 `/api/logs` 发回 client 前端展示，UI 设计参考 `wireshark`：
+
+![5fd4fcf2032ee8374b85d43df66b7c04](https://cdn.jsdelivr.net/gh/fsj2009yx/picserver@main/20260420163519316.png)
+
+
 
 # 第七章　封包与拆包详细设计
 
@@ -1728,158 +1620,183 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 由于 Client 和 V 之间已经有了共享的 Key_c_v，后续传输加密使用它进行对称钥加密即可
 
-### APP_REQ（C-> V）
+### APP_REQ（C -> V）
 
-| **相对偏移**   | **类型**    | **字段名**      | **说明**                                                   |
-| -------------- | ----------- | --------------- | ---------------------------------------------------------- |
-| +0             | **Kstring** | **ID_Client**   | **路由标识**：Server 根据它找到对应的 `SK_cv` 和 `Pub_c`。 |
-| + (2 + Len_ID) | **uint16**  | **Cipher_Len**  | 后续加密部分的长度。                                       |
-| + (4 + Len_ID) | **bytes**   | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密。                          |
+| **相对偏移**                | **类型**       | **字段名**      | **说明**                                              |
+| --------------------------- | -------------- | --------------- | ----------------------------------------------------- |
+| +0                          | **Kstring**    | **ID_Client**   | **路由标识**：Server 用于检索 `Key_c_v` 和 `Pub_c`。  |
+| + (2 + Len_ID)              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                   |
+| + (4 + Len_ID)              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（含 IV + 业务明文）。 |
+| + (4 + Len_ID + Cipher_Len) | **bytes(256)** | **RSA_Sign_c**  | **外层签名**：Client 私钥对密文块进行直接签名。       |
 
 **Cipher_Data 解密后明文结构：**
 
-| **类型**       | **字段名**   | **说明**                                                     |
-| -------------- | ------------ | ------------------------------------------------------------ |
-| **Kstring**    | **Command**  | **业务指令**：用户写入的命令行字符串                         |
-| **bytes(256)** | **RSA_Sign** | **不可否认凭证**：Client 私钥对 `Command + Seq_Num` 的签名。 |
-
-```plaintext
-0                   1                   2                   3
-  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- |      ID_Client_Len (uint16)   |                               |
- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+        ID_Client              |
- |              (用于 Server 在内存中检索 Session)                 |
- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- |     Cipher_Len (uint16)       |                               |
- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
- |                                                               |
- |    Cipher_Data (AES 加密部分) --------------------.             |
- |                                                 |             |
- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             |
-                                                   |             |
-          .----------------------------------------'             |
-          |  [ 解密后的明文布局 ]                                   |
-          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                   |
-          |  |    Command_Len (uint16)       |                   |
-          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                   |
-          |  |         Command (CLI)          |                  |
-          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                   |
-          |  |         RSA_Signature         |                   |
-          |  |    (证明 Client 确实下达了此指令)   |                |
-          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                   |
-          '------------------------------------------------------'
-```
-
-**签名生成（Client 端）**
-
-Client 在发送 `Command` 前，先从协议 Header 中提取当前的 `Seq_Num`，执行以下逻辑：
-
-$$M = \text{Seq\_Num} \parallel \text{Command}$$
-
-$$\text{Sig\_SK}_c = \text{Sign}_{\text{SK}_c}(\text{SHA256}(M))$$
-
-- **$M$**：待签名的消息载荷（逻辑拼接）
-- **$\text{SK}_c$**：Client 的 RSA 私钥
-- **$\text{Sig\_SK}_c$**：生成的 **定长 256 字节** 签名
-
-**签名验证（Server 端）**
-
-Server 收到包并 AES 解密后，拿到 `Command` 和 `Sig_SK_c`，同时从解密前的 Header 中提取 `Seq_Num`：
-
-1. **重组待验数据**：$M' = \text{Seq\_Num} \parallel \text{Command}$
-2. **解密签名**：$H_{\text{dec}} = \text{Ver}_{\text{PK}_c}(\text{Sig\_SK}_c)$
-3. **比对哈希**：检验 $H_{\text{dec}} \stackrel{?}{=} \text{SHA256}(M')$
-
-- **$\text{PK}_c$**：从初始化阶段拿到的 **证书** 中提取出 Client 公钥
-- **验证通过**：证明该指令确实由 $\text{ID\_Client}$ 发出，且 `Seq_Num` 未被篡改
-
-### APP_REP（V-> C）
-
-| **相对偏移** | **类型**   | **字段名**      | **说明**                                                  |
-| ------------ | ---------- | --------------- | --------------------------------------------------------- |
-| +0           | **uint32** | **Seq_Num**     | **响应序号**：对应请求包的 `Seq_Num`，确保请求/响应配对。 |
-| +4           | **uint16** | **Cipher_Len**  | 后续加密部分的长度。                                      |
-| +6           | **bytes**  | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密。                         |
-
-**Cipher_Data 解密后明文结构 (业务回执层)**
-
-| **类型**       | **字段名**     | **说明**                                                  |
-| -------------- | -------------- | --------------------------------------------------------- |
-| **int32**      | **Exit_Code**  | **执行状态**：子进程的退出状态码（如 0 为成功）。         |
-| **Kstring**    | **Response**   | **执行结果**：`spawn` 捕获的输出字符串（stdout/stderr）。 |
-| **bytes(256)** | **RSA_Sign_v** | **不可否认凭证**：V 私钥对 `Response + Seq_Num` 的签名。  |
+| **类型**   | **字段名**       | **说明**                                               |
+| ---------- | ---------------- | ------------------------------------------------------ |
+| **uint8**  | **Payload_Type** | **载荷类型**：0x01 表示文本指令；0x02 表示二进制负载。 |
+| **uint32** | **Payload_Len**  | 后续 Payload 的字节数。                                |
+| **bytes**  | **Payload**      | **实际载荷**：如具体的命令行字符串/传输的二进制文件    |
 
 ```
  0                   1                   2                   3
   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- |                        Seq_Num (uint32)                       |
+ |      ID_Client_Len (uint16)   |                               |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+         ID_Client             |
+ |             (用于 Server 在内存中检索 Session)                 |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  |      Cipher_Len (uint16)      |                               |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
  |                                                               |
- |    Cipher_Data (AES 加密部分) --------------------.             |
+ |    Cipher_Data (AES 加密部分，包含前置 IV) ----------------.      |
  |                                                 |             |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             |
-                                                   |             |
-          .----------------------------------------'             |
-          |  [ 解密后的明文布局 ]                                   |
+ |                                                               |
+ |                  RSA_Signature_c (256 Bytes)                  |
+ |           (对上方的 Cipher_Data 密文块进行直接签名)              |
+ |                                                               |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                                                   |
+          .----------------------------------------'
+          |  [ 解密后的明文业务载荷 ]
           |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
-          |  |             Exit_Code (int32, 大端)               | |
-          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
-          |  |      Response_Len (uint16)    |                   | |
-          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                   | |
-          |  |         Response (Output String)                  | |
+          |  | Type(uint8) |      Payload_Len (uint32)           | |
           |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
           |  |                                                   | |
-          |  |         RSA_Signature_v (256 Bytes)               | |
-          |  |    (证明 Server 确实执行并返回了此结果)             | |
+          |  |                Payload (Raw Bytes)                | |
           |  |                                                   | |
+          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
+          '------------------------------------------------------'
+```
+
+------
+
+**签名生成（Client 端）**
+
+使用 **先加密后签名** 的模式，防止针对 RSA 解密的 Dos 攻击
+
+1. **业务封装与加密**：
+
+   将 `Payload_Type`、`Payload_Len`、`Payload` 拼接并填充，使用 `Key_c_v` 执行 AES-256-CBC 加密，得到 `Cipher_Data`。
+
+2. **待签名数据**：
+
+   $$M = \text{Seq\_Num} \parallel \text{Cipher\_Data}$$
+
+   *(注：加入 Seq_Num 参与哈希，确保即便是相同的指令，其外部签名也会随序号变化，防止密文层面的重放)*。
+
+3. **计算签名**：
+
+   $$\text{Sig\_SK}_c = \text{Sign}_{\text{SK}_c}(\text{SHA256}(M))$$
+
+**签名验证（Server 端）**
+
+1. **初步校验**：
+
+   根据 `ID_Client` 检索 Session 信息。如果 `Seq_Num` 校验未通过（如重复包），直接丢弃。
+
+2. **验签（优先于解密）**：
+
+   从报文末尾截取 256 字节，结合内存中的 `Seq_Num` 与收到的 `Cipher_Data`：
+
+   $$M' = \text{Seq\_Num} \parallel \text{Cipher\_Data}$$
+
+   验证 $\text{Ver}_{\text{PK}_c}(\text{Sig\_SK}_c)$ 是否等于 $\text{SHA256}(M')$。
+
+3. **解密业务**：
+
+   验签成功后，才调用 AES 解密 `Cipher_Data` 并分发业务逻辑。
+
+---
+
+### APP_REP（V-> C）
+
+| **相对偏移**    | **类型**       | **字段名**      | **说明**                                                     |
+| --------------- | -------------- | --------------- | ------------------------------------------------------------ |
+| +0              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                          |
+| +2              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（包含 IV + 密文）。          |
+| +(2+Cipher_Len) | **bytes(256)** | **RSA_Sign_v**  | **外层安全凭证**：V 私钥对密文 `Cipher_Data` 的签名，用于解密前防伪校验。 |
+
+**Cipher_Data 解密后明文结构 (多态业务回执层)**
+
+| **类型**   | **字段名**       | **说明**                                                     |
+| ---------- | ---------------- | ------------------------------------------------------------ |
+| **uint8**  | **Payload_Type** | **载荷类型**：0x01 表示纯文本(stdout/stderr)；0x02 表示二进制文件/数据(文件上传) |
+| **int32**  | **Exit_Code**    | **执行状态**：子进程的退出状态码（如 0 为成功）。            |
+| **uint32** | **Payload_Len**  | **载荷长度**：后续 Payload 的字节数（支持传输大文件）。      |
+| **bytes**  | **Payload**      | **实际载荷**：根据 Payload_Type 决定上层如何解析的原始二进制流。 |
+
+```
+ 0                   1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |      Cipher_Len (uint16)      |                               |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
+ |                                                               |
+ |    Cipher_Data (AES 加密部分，包含前置 IV) ----------------.      |
+ |                                                 |             |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             |
+ |                                                               |
+ |                  RSA_Signature_v (256 Bytes)                  |
+ |           (对上方的 Cipher_Data 密文块进行直接签名)              |
+ |                                                               |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                                                   |
+          .----------------------------------------'
+          |  [ 解密后的明文业务载荷 ]
+          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
+          |  | Type(uint8) |    Exit_Code (int32, 大端)          | |
+          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
+          |  |      Payload_Len (uint32, 大端)                   | |
+          |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
+          |  |         Payload (Raw Bytes)                       | |
           |  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+|
           '------------------------------------------------------'
 ```
 
 **签名生成（Server 端）**
 
-Server 在 `spawn` 执行完毕并准备构建 **APP_REP** 前，执行以下逻辑：
+Server 在 `spawn` 执行完毕后，执行以下逻辑：
 
-1. **待签名消息载荷 (M)**：
+1. **业务序列化与加密**：
 
-   $$M = \text{Seq\_Num} \parallel \text{Exit\_Code} \parallel \text{Response}$$
+   先将业务字段（`Payload_Type`、`Exit_Code`、`Payload_Len`、`Payload`）拼接，进行 PKCS7 填充，并用 `Key_c_v` 完成 AES-256-CBC 加密，生成完整的 `Cipher_Data`（包含 16 字节 IV）。
 
-   - **Seq_Num**：响应包 `Header` 中拿到 `Seq_num`
-   - **Exit_Code**：子进程退出状态码
-   - **Response**：执行结果字符串
+2. **待签名消息载荷 (M)**：
 
-2. **签名计算**：
+   对刚刚生成的 **密文二进制流** 进行哈希处理。
+
+   $$M = \text{Cipher\_Data}$$
+
+3. **签名计算**：
 
    $$\text{Sig\_SK}_v = \text{Sign}_{\text{SK}_v}(\text{SHA256}(M))$$
 
    - **$\text{SK}_v$**：Server (V) 的 RSA 私钥。
-   - **$\text{Sig\_SK}_v$**：生成的定长 **256 字节** 签名，填入 `Cipher_Data` 的末尾
+   - **$\text{Sig\_SK}_v$**：生成的定长 **256 字节** 签名，直接作为数据包的尾部追加到 Socket 缓冲区。
 
-**签名验证（Client 端）**
+**签名验证与解密（Client 端）**
 
-Client 收到 **APP_REP** 并完成 AES 解密后，执行以下逻辑：
+Client 收到 **APP_REP** 后：
 
-1. **重组待验数据 (M')**：
+1. **报文拆解与哈希**：
 
-   从解密后的明文提取 `Exit_Code` 和 `Response`，并结合报文头部的 `Seq_Num`：
+   根据头部提取 `Cipher_Len`，切割出 `Cipher_Data`，并读取末尾的 256 字节签名块。
 
-   $$M' = \text{Seq\_Num} \parallel \text{Exit\_Code} \parallel \text{Response}$$
+   计算密文的哈希：$M' = \text{Cipher\_Data}$
 
-2. **解密签名**：
+2. **解密签名（优先验签）**：
 
    $$H_{\text{dec}} = \text{Ver}_{\text{PK}_v}(\text{Sig\_SK}_v)$$
 
-   - **$\text{PK}_v$**：从初始化阶段预留的 **证书** 中提取的 Server 公钥。
+   - **$\text{PK}_v$**：预留的 Server 公钥。
 
-3. **比对哈希**：
+3. **比对哈希与拦截**：
 
-   检验
+   检验 $H_{\text{dec}} \stackrel{?}{=} \text{SHA256}(M')$
 
-   $$H_{\text{dec}} \stackrel{?}{=} \text{SHA256}(M')$$
+   - ⛔ **如果不等**：说明密文在传输过程中被篡改，**直接丢弃该包，严禁调用 AES 解密**，防止 padding oracle 等密码学侧信道攻击。
+   - ✅ **如果相等**：再将安全的 `Cipher_Data` 送入 AES-256-CBC 模块解密，最后解析 TLV 业务明文。
 
 # 第十章　测试用例清单
 
