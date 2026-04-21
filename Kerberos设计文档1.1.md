@@ -67,7 +67,11 @@
 
 实现多线程并发处理
 
-在已实现的 Kerberos 基础上，基于 Xterm.js 和 Go PTY 实现零信任访问审计系统：Kerberos 提供身份验证和加密通信保证，RSA 签名实现双向不可否认，V 服务器对 Client 的每一条 Command 后台记录并存入数据库
+在已实现的 Kerberos 基础上，基于 `Xterm.js` 和 `Go PTY` 实现零信任访问审计系统：Kerberos 提供身份验证和加密通信保证，RSA 签名实现双向不可否认，V 服务器对 Client 的每一条 Command 后台记录并存入数据库
+
+## 源代码管理
+
+使用 git 做版本控制和源代码管理，远程仓库设置分支保护，禁止 `git push --force`
 
 # 第一章　全局统一规范
 
@@ -117,9 +121,9 @@
 
 | 错误码 | 宏定义 | 适用模块 | 触发场景 | 处理策略 |
 |--------|--------|----------|----------|----------|
-| `-3001` | `ERR_AES_KEY_LEN` | AES-256 | 传入的密钥长度不等于 32 字节 | 拒绝加密操作，调用方须检查密钥来源逻辑 |
-| `-3002` | `ERR_AES_PADDING` | AES-256 | PKCS7 填充计算异常（明文长度溢出或对齐逻辑错误） | 返回错误，调用方应检查明文缓冲区 |
-| `-3003` | `ERR_AES_DECRYPT_FAIL` | AES-256 | 解密后 PKCS7 校验失败：填充字节值不合法（<1 或 > 16）或填充内容不一致 | 丢弃解密结果，返回错误；在 TGS/V 侧记录 SECURITY 日志（疑似密文被篡改）|
+| `-3001` | `ERR_DES_KEY_LEN` | DES | 传入的密钥长度不等于 8 字节 | 拒绝加密操作，调用方须检查密钥来源逻辑 |
+| `-3002` | `ERR_DES_PADDING` | DES | PKCS7 填充计算异常（明文长度溢出或对齐逻辑错误） | 返回错误，调用方应检查明文缓冲区 |
+| `-3003` | `ERR_DES_DECRYPT_FAIL` | DES | 解密后 PKCS7 校验失败：填充字节值不合法（<1 或 > 8）或填充内容不一致 | 丢弃解密结果，返回错误；在 TGS/V 侧记录 SECURITY 日志（疑似密文被篡改）|
 | `-3004` | `ERR_RSA_KEY_INVALID` | RSA | RSA Key 结构体中 `n`/`e`/`d` 任一字段为零，或结构未初始化 | 拒绝所有涉及该密钥的操作，记录 ERROR 日志 |
 | `-3005` | `ERR_RSA_SIGN_FAIL` | RSA | RSA 模幂运算中出现内部错误（大整数溢出等） | 返回错误，调用方不得发送带有错误签名的消息 |
 | `-3006` | `ERR_RSA_VERIFY_FAIL` | RSA | 验签失败：解密后的 EMSA 编码与重新计算的 Hash 不匹配 | 立即拒绝该请求，记录 SECURITY 日志（疑似消息伪造或私钥泄露） |
@@ -322,7 +326,7 @@ struct Ker_Header {
 
 - 日志中 **禁止记录任何明文密钥**（Kc、K_c, tgs、K_c, v 等）。若需记录密钥用于调试，只能记录其 SHA-256 摘要（前 8 字节的十六进制表示）
 - 日志中 **禁止记录明文 CLI 指令的完整内容**，只记录指令的哈希值和执行结果状态（成功/失败）
-- 加密性能敏感路径（AES 加解密、RSA 模幂）需记录 `DEBUG` 级别耗时日志，格式：`[elapsed=12.3ms]`
+- 加密性能敏感路径（DES 加解密、RSA 模幂）需记录 `DEBUG` 级别耗时日志，格式：`[elapsed=12.3ms]`
 - 日志必须持久化到独立的 `security.log` 文件，且该文件不可通过 WebUI 删除
 
 ---
@@ -365,7 +369,7 @@ struct Ker_Header {
 
 ## 总体说明
 
-> **核心约束：禁止调用任何第三方加解密库。** 包括但不限于 OpenSSL、PyCryptodome、javax.crypto、BouncyCastle、CryptoJS 等。所有加密相关功能（AES、SHA-256、HMAC、RSA）必须从算法原语开始手写实现。
+> **核心约束：禁止调用任何第三方加解密库。** 包括但不限于 OpenSSL、PyCryptodome、javax.crypto、BouncyCastle、CryptoJS 等。所有加密相关功能（DES、SHA-256、HMAC、RSA）必须从算法原语开始手写实现。
 
 加密模块独立于其他业务模块，位于 `common/crypto/` 目录下，便于单独编译测试
 
@@ -391,86 +395,83 @@ struct Ker_Header {
 
 ---
 
-## AES-256-CBC
+## DES-CBC
 
 ### 算法背景
 
-AES 是目前最广泛使用的对称加密算法。本项目使用 **256 位密钥（32 字节），CBC（密码块链）工作模式**。
+DES 是经典的分组对称加密算法。本项目使用 **64 位密钥（8 字节，含奇偶校验位），CBC（密码块链）工作模式**。
 
-CBC 模式通过将前一个密文块与当前明文块进行 XOR 后再加密，使得相同的明文在不同位置产生不同的密文，有效抵御了 ECB 模式下的明文模式攻击。
+CBC 模式通过将前一个密文块与当前明文块进行 XOR 后再加密，使得相同的明文在不同位置产生不同的密文，有效抵御 ECB 模式下的明文模式攻击。
 
-AES-256 的核心参数：
-- **密钥长度**：256 位（32 字节）
-- **块大小**：128 位（16 字节）
-- **轮数**：14 轮（比 AES-128 多 4 轮）
-- **密钥扩展**：从 32 字节原始密钥扩展出 15 个轮密钥（每个 16 字节）
+DES 的核心参数：
+- **密钥长度**：64 位（8 字节，实际有效密钥位 56 位）
+- **块大小**：64 位（8 字节）
+- **轮数**：16 轮 Feistel 轮函数
+- **子密钥生成**：从原始密钥经 PC-1 / 左移 / PC-2 生成 16 组 48 位子密钥
 
 ### 上下文结构体
 
 ```c
 #pragma pack(push, 1)
 typedef struct {
-    uint8_t  round_keys[15][16];  // 密钥扩展结果：14 轮加密 + 1 个初始轮密钥，共 15 组，每组 16 字节
-    uint8_t  iv[16];              // CBC 模式的初始向量（Initialization Vector），加密前必须设置
-    uint8_t  key[32];             // 保存原始 256 位密钥（便于调试和重新派生）
-} AES256_Ctx;
+    uint64_t sub_keys[16];  // 16 组 48 位轮子密钥（以 uint64_t 承载低 48 位）
+    uint8_t  iv[8];         // CBC 模式的初始向量（Initialization Vector），加密前必须设置
+    uint8_t  key[8];        // 保存原始 64 位密钥（含奇偶校验位）
+} DES_Ctx;
 #pragma pack(pop)
 ```
 
 ### 函数接口
 
 ```c
-// 初始化上下文：执行密钥扩展，将 key 和 iv 存入 ctx
-// key: 32 字节密钥; iv: 16 字节初始向量（加密时使用，解密时须与加密时相同）
-int32_t aes256_init(const uint8_t key[32], const uint8_t iv[16], AES256_Ctx* ctx);
-// 返回：KRB_OK | ERR_AES_KEY_LEN(-3001)
+// 初始化上下文：执行子密钥生成，将 key 和 iv 存入 ctx
+// key: 8 字节密钥; iv: 8 字节初始向量（加密时使用，解密时须与加密时相同）
+int32_t des_init(const uint8_t key[8], const uint8_t iv[8], DES_Ctx* ctx);
+// 返回：KRB_OK | ERR_DES_KEY_LEN(-3001)
 
-// 单块 ECB 加密（内部原语，不直接对外使用）：对 16 字节明文块执行 14 轮 AES 加密
-int32_t aes256_encrypt_block(const uint8_t in[16], AES256_Ctx* ctx, uint8_t out[16]);
+// 单块加密（内部原语，不直接对外使用）：对 8 字节明文块执行 16 轮 DES 加密
+int32_t des_encrypt_block(const uint8_t in[8], DES_Ctx* ctx, uint8_t out[8]);
 
-// 单块 ECB 解密（内部原语）：对 16 字节密文块执行 14 轮 AES 解密
-int32_t aes256_decrypt_block(const uint8_t in[16], AES256_Ctx* ctx, uint8_t out[16]);
+// 单块解密（内部原语）：对 8 字节密文块执行 16 轮 DES 解密
+int32_t des_decrypt_block(const uint8_t in[8], DES_Ctx* ctx, uint8_t out[8]);
 
 // CBC 模式加密（对外接口）
 // plain: 明文字节数组; plain_len: 明文字节数（任意长度，函数内部自动 PKCS7 填充）
-// cipher: 输出密文缓冲区（调用方分配，大小 ≥ plain_len + 16，即最多多一个填充块）
-// cipher_len: 输出的密文实际字节数（= ((plain_len / 16) + 1) * 16，始终是 16 的倍数）
-int32_t aes256_cbc_encrypt(
+// cipher: 输出密文缓冲区（调用方分配，大小 ≥ plain_len + 8，即最多多一个填充块）
+// cipher_len: 输出的密文实际字节数（= ((plain_len / 8) + 1) * 8，始终是 8 的倍数）
+int32_t des_cbc_encrypt(
     const uint8_t* plain, uint32_t plain_len,
-    AES256_Ctx* ctx,
+    DES_Ctx* ctx,
     uint8_t* cipher, uint32_t* cipher_len
 );
-// 返回：KRB_OK | ERR_AES_KEY_LEN | ERR_AES_PADDING(-3002) | ERR_BUF_TOO_SMALL(-1007)
+// 返回：KRB_OK | ERR_DES_KEY_LEN | ERR_DES_PADDING(-3002) | ERR_BUF_TOO_SMALL(-1007)
 
 // CBC 模式解密（对外接口）
-// cipher: 密文（必须是 16 的倍数，否则视为 ERR_AES_DECRYPT_FAIL）
+// cipher: 密文（必须是 8 的倍数，否则视为 ERR_DES_DECRYPT_FAIL）
 // plain: 输出明文缓冲区（调用方分配，大小 ≥ cipher_len）
 // plain_len: 去除 PKCS7 填充后的明文字节数
-int32_t aes256_cbc_decrypt(
+int32_t des_cbc_decrypt(
     const uint8_t* cipher, uint32_t cipher_len,
-    AES256_Ctx* ctx,
+    DES_Ctx* ctx,
     uint8_t* plain, uint32_t* plain_len
 );
-// 返回：KRB_OK | ERR_AES_KEY_LEN | ERR_AES_DECRYPT_FAIL(-3003)
+// 返回：KRB_OK | ERR_DES_KEY_LEN | ERR_DES_DECRYPT_FAIL(-3003)
 ```
 
 ### 实现要点
 
-**S-Box（替换字节）**：AES 规范中定义了固定的 256 字节 S-Box 查找表（正向）和 InvS-Box 查找表（逆向），直接硬编码为常量数组即可，无需运行时生成。
+**S-Box（替换盒）**：DES 使用 8 个固定 S-Box（每个 6bit 输入到 4bit 输出），可直接硬编码查表实现。
 
-**密钥扩展（KeyExpansion）**：
-1. 将 32 字节密钥分为 8 个 32 位字（W [0]~W [7]）
-2. 从 W [8] 开始迭代计算，规则如下：
-   - 若 `i mod 8 == 0`：`W[i] = W[i-8] ⊕ SubWord(RotWord(W[i-1])) ⊕ Rcon[i/8]`
-   - 若 `i mod 8 == 4`：`W[i] = W[i-8] ⊕ SubWord(W[i-1])`
-   - 其他：`W[i] = W[i-8] ⊕ W[i-1]`
-3. 共计算到 W [59]，生成 60 个字，对应 15 组轮密钥
+**子密钥生成（Key Schedule）**：
+1. 对 64 位原始密钥执行 PC-1 置换，得到 `C0(28bit)` 与 `D0(28bit)`。
+2. 按轮移位表执行左循环移位，得到 `C1..C16`、`D1..D16`。
+3. 每轮将 `Ci || Di` 通过 PC-2 置换压缩为 48 位子密钥 `K1..K16`。
 
-**GF(2^8) 乘法（MixColumns 所需）**：定义 `xtime(a)` 函数实现 GF(2^8) 中乘以 2 的操作：若 a 的最高位为 0，则左移 1 位；若为 1，则左移 1 位后 XOR `0x1b`（不可约多项式）。乘以 3 = xtime(a) ⊕ a，以此类推可实现 MixColumns 所需的所有系数。
+**轮函数 F**：每轮将右半块 `R` 先经 E 扩展到 48 位，与子密钥异或后分入 8 个 S-Box，再经 P 置换输出 32 位，与左半块完成 Feistel 结构交换。
 
-**PKCS7 填充**：填充字节的值等于需要填充的字节数量。若明文长度恰好是 16 的倍数，仍需追加 16 字节（值均为 `0x10`）的填充，这样接收方才能明确区分数据结尾和填充结尾。解密时，取最后一个字节的值 `n`，验证末尾 `n` 个字节是否全等于 `n`，若不符合则报 `ERR_AES_DECRYPT_FAIL`。
+**PKCS7 填充**：填充字节的值等于需要填充的字节数量。若明文长度恰好是 8 的倍数，仍需追加 8 字节（值均为 `0x08`）的填充。解密时，取最后一个字节值 `n`，验证末尾 `n` 个字节是否全等于 `n`，若不符合则报 `ERR_DES_DECRYPT_FAIL`。
 
-**IV 传输约定**：加密时由加密方生成随机 16 字节 IV（调用 `krb_rand_bytes(iv, 16)`），将 IV **明文前置** 拼接在密文前一同发送（即实际发送：`IV(16字节) || 密文`）。解密方读取前 16 字节作为 IV，后续字节作为密文。此约定使得 IV 无需单独字段传输，但会使密文总长增加 16 字节——各 Payload 中的 `Cipher_Len` 字段包含 IV 的这 16 字节。
+**IV 传输约定**：加密时由加密方生成随机 8 字节 IV（调用 `krb_rand_bytes(iv, 8)`），将 IV **明文前置** 拼接在密文前一同发送（即实际发送：`IV(8字节) || 密文`）。解密方读取前 8 字节作为 IV，后续字节作为密文。此约定使得 IV 无需单独字段传输，但会使密文总长增加 8 字节，各 Payload 中的 `Cipher_Len` 字段包含 IV 的这 8 字节。
 
 ---
 
@@ -686,12 +687,12 @@ type ASReqPayload struct {
 // 消息 2 外层：AS_REP（AS -> Client）外层传输
 type ASRepPayloadWire struct {
     CipherLen uint32 // Cipher_Len
-    EncPart   []byte // Enc_Part(AES, Kc)
+    EncPart   []byte // Enc_Part(DES, Kc)
 }
 
 // 消息 2 内层明文：AS_REP Enc_Part 解密后
 type ASRepPlain struct {
-    KeyCTGS   [32]byte // Key_c_tgs
+    KeyCTGS   [8]byte // Key_c_tgs
     IDTGS     KString  // ID_TGS
     TS2       uint32   // TS2
     Lifetime  uint32   // Lifetime
@@ -701,7 +702,7 @@ type ASRepPlain struct {
 
 // Ticket_TGS 明文（仅 TGS 解密可见，但 AS 负责构造）
 type TicketTGSPlain struct {
-    KeyCTGS  [32]byte // Key_c_tgs
+    KeyCTGS  [8]byte // Key_c_tgs
     IDClient KString  // ID_Client
     ADc      uint32   // AD_c
     IDTGS    KString  // ID_TGS
@@ -711,14 +712,14 @@ type TicketTGSPlain struct {
 
 type ASClientSecret struct {
     IDClient string
-    Kc       [32]byte
+    Kc       [8]byte
     ADc      uint32
 }
 
 type ASState struct {
     SeqNum  uint32
     Clients map[string]ASClientSecret
-    Ktgs    [32]byte
+    Ktgs    [8]byte
 }
 ```
 
@@ -727,8 +728,8 @@ type ASState struct {
 | 函数签名（Go） | Comment |
 |---|---|
 | `func ParseASReqPayload(raw []byte) (ASReqPayload, int32)` | 按第九章“消息 1”布局解析 `ID_Client + ID_TGS + TS1`。 |
-| `func BuildTicketTGSPlain(c ASClientSecret, idTGS string, keyCTGS [32]byte, ts2 uint32, lifetime uint32) ([]byte, int32)` | 组装 `Ticket_TGS` 明文字段（`Key_c_tgs/ID_Client/AD_c/ID_TGS/TS2/Lifetime`）。 |
-| `func BuildASRepPlain(keyCTGS [32]byte, idTGS string, ts2 uint32, lifetime uint32, ticketTGS []byte) ([]byte, int32)` | 组装 `AS_REP` 内层明文（第九章消息 2 第二层）。 |
+| `func BuildTicketTGSPlain(c ASClientSecret, idTGS string, keyCTGS [8]byte, ts2 uint32, lifetime uint32) ([]byte, int32)` | 组装 `Ticket_TGS` 明文字段（`Key_c_tgs/ID_Client/AD_c/ID_TGS/TS2/Lifetime`）。 |
+| `func BuildASRepPlain(keyCTGS [8]byte, idTGS string, ts2 uint32, lifetime uint32, ticketTGS []byte) ([]byte, int32)` | 组装 `AS_REP` 内层明文（第九章消息 2 第二层）。 |
 | `func BuildASRepPayload(encPart []byte) ([]byte, int32)` | 组装 `AS_REP` 外层 `Cipher_Len + Enc_Part`。 |
 | `func HandleASReq(h KerHeader, payload []byte, st *ASState) (respMsgType uint8, respPayload []byte, code int32)` | 处理 `AS_REQ` 并返回 `AS_REP` 或 `0xff` 错误负载。 |
 | `func BuildErrorPayload(code int32) []byte` | 按统一规范生成错误负载（`int32`）。 |
@@ -793,7 +794,7 @@ type AuthenticatorCTGSPlain struct {
 
 // Ticket_TGS 明文（由 TGS 解密）
 type TicketTGSPlain struct {
-    KeyCTGS  [32]byte // Key_c_tgs
+    KeyCTGS  [8]byte // Key_c_tgs
     IDClient KString  // ID_Client
     ADc      uint32   // AD_c
     IDTGS    KString  // ID_TGS
@@ -804,12 +805,12 @@ type TicketTGSPlain struct {
 // 消息 4 外层：TGS_REP（TGS -> Client）
 type TGSRepPayloadWire struct {
     CipherLen uint32 // Cipher_Len
-    EncPart   []byte // Enc_Part(AES, K_c_tgs)
+    EncPart   []byte // Enc_Part(DES, K_c_tgs)
 }
 
 // 消息 4 内层明文
 type TGSRepPlain struct {
-    KeyCV      [32]byte // Key_c_v
+    KeyCV      [8]byte // Key_c_v
     IDV        KString  // ID_V
     TS4        uint32   // TS4
     Lifetime   uint32   // Lifetime
@@ -819,7 +820,7 @@ type TGSRepPlain struct {
 
 // Ticket_V 明文（由 V 解密）
 type TicketVPlain struct {
-    KeyCV     [32]byte // Key_c_v
+    KeyCV     [8]byte // Key_c_v
     IDClient  KString  // ID_Client
     ADc       uint32   // AD_c
     IDV       KString  // ID_V
@@ -829,12 +830,12 @@ type TicketVPlain struct {
 
 type ServiceSecret struct {
     IDV string
-    Kv  [32]byte
+    Kv  [8]byte
 }
 
 type TGSState struct {
     SeqNum   uint32
-    Ktgs     [32]byte
+    Ktgs     [8]byte
     Services map[string]ServiceSecret
 }
 ```
@@ -844,10 +845,10 @@ type TGSState struct {
 | 函数签名（Go） | Comment |
 |---|---|
 | `func ParseTGSReqPayload(raw []byte) (TGSReqPayload, int32)` | 按第九章“消息 3”解析 `ID_V/Ticket_Len/Ticket_TGS/Auth_Len/Authenticator_c`。 |
-| `func DecodeTicketTGS(ticketCipher []byte, ktgs [32]byte) (TicketTGSPlain, int32)` | 解密并解析 `Ticket_TGS` 明文结构。 |
-| `func DecodeAuthenticatorCTGS(authCipher []byte, keyCTGS [32]byte) (AuthenticatorCTGSPlain, int32)` | 解密并解析 `Authenticator_c` 明文（消息 3 内层）。 |
-| `func BuildTicketVPlain(idClient string, adC uint32, idV string, keyCV [32]byte, ts4 uint32, lifetime uint32) ([]byte, int32)` | 组装 `Ticket_V` 明文结构（第九章消息 4 第三层）。 |
-| `func BuildTGSRepPlain(keyCV [32]byte, idV string, ts4 uint32, lifetime uint32, ticketV []byte) ([]byte, int32)` | 组装 `TGS_REP` 内层明文（消息 4 第二层）。 |
+| `func DecodeTicketTGS(ticketCipher []byte, ktgs [8]byte) (TicketTGSPlain, int32)` | 解密并解析 `Ticket_TGS` 明文结构。 |
+| `func DecodeAuthenticatorCTGS(authCipher []byte, keyCTGS [8]byte) (AuthenticatorCTGSPlain, int32)` | 解密并解析 `Authenticator_c` 明文（消息 3 内层）。 |
+| `func BuildTicketVPlain(idClient string, adC uint32, idV string, keyCV [8]byte, ts4 uint32, lifetime uint32) ([]byte, int32)` | 组装 `Ticket_V` 明文结构（第九章消息 4 第三层）。 |
+| `func BuildTGSRepPlain(keyCV [8]byte, idV string, ts4 uint32, lifetime uint32, ticketV []byte) ([]byte, int32)` | 组装 `TGS_REP` 内层明文（消息 4 第二层）。 |
 | `func HandleTGSReq(h KerHeader, payload []byte, peerADc uint32, st *TGSState) (respMsgType uint8, respPayload []byte, code int32)` | 处理 `TGS_REQ`，输出 `TGS_REP` 或 `0xff` 错误。 |
 
 ## 4.3　WebUI API 接口
@@ -907,7 +908,7 @@ type AuthenticatorCVPlain struct {
 
 // Ticket_V 明文（V 用 Kv 解密）
 type TicketVPlain struct {
-    KeyCV    [32]byte // Key_c_v
+    KeyCV    [8]byte // Key_c_v
     IDClient KString  // ID_Client
     ADc      uint32   // AD_c
     IDV      KString  // ID_V
@@ -918,7 +919,7 @@ type TicketVPlain struct {
 // 消息 6：AP_REP（V -> Client）
 type APRepPayloadWire struct {
     CipherLen uint32 // Cipher_Len
-    EncPart   []byte // Enc_Part(AES, K_c_v)
+    EncPart   []byte // Enc_Part(DES, K_c_v)
 }
 
 type APRepPlain struct {
@@ -956,14 +957,14 @@ type APPRepPlain struct {
 type SessionContext struct {
     IDClient string
     ADc      uint32
-    KeyCV    [32]byte
+    KeyCV    [8]byte
     ExpireAt uint32
 }
 
 type VState struct {
     SeqNum   uint32
     IDV      string
-    Kv       [32]byte
+    Kv       [8]byte
     Sessions map[string]SessionContext
 }
 ```
@@ -973,12 +974,12 @@ type VState struct {
 | 函数签名（Go） | Comment |
 |---|---|
 | `func ParseAPReqPayload(raw []byte) (APReqPayload, int32)` | 按第九章“消息 5”解析 `Ticket_V_Len/Ticket_V/Auth_Len/Authenticator_c`。 |
-| `func DecodeTicketV(ticketCipher []byte, kv [32]byte) (TicketVPlain, int32)` | 解密并解析 `Ticket_V` 明文。 |
-| `func DecodeAuthenticatorCV(authCipher []byte, keyCV [32]byte) (AuthenticatorCVPlain, int32)` | 解密并解析 AP 阶段 `Authenticator_c` 明文。 |
-| `func BuildAPRepPayload(ts5 uint32, keyCV [32]byte) ([]byte, int32)` | 构造 `AP_REP`（`Cipher_Len + AES(Key_c_v, TS5+1)`）。 |
+| `func DecodeTicketV(ticketCipher []byte, kv [8]byte) (TicketVPlain, int32)` | 解密并解析 `Ticket_V` 明文。 |
+| `func DecodeAuthenticatorCV(authCipher []byte, keyCV [8]byte) (AuthenticatorCVPlain, int32)` | 解密并解析 AP 阶段 `Authenticator_c` 明文。 |
+| `func BuildAPRepPayload(ts5 uint32, keyCV [8]byte) ([]byte, int32)` | 构造 `AP_REP`（`Cipher_Len + DES(Key_c_v, TS5+1)`）。 |
 | `func ParseAPPReqPayload(raw []byte) (APPReqPayload, int32)` | 按第九章“APP_REQ 外层”解析 `ID_Client/Cipher_Len/Cipher_Data/RSA_Sign_c`。 |
-| `func DecryptAPPReqPlain(cipher []byte, keyCV [32]byte) (APPReqPlain, int32)` | 解密 `Cipher_Data` 后解析 `Payload_Type/Payload_Len/Payload`。 |
-| `func BuildAPPRepPayload(payloadType uint8, exitCode int32, payload []byte, keyCV [32]byte, signV func([]byte) [256]byte) ([]byte, int32)` | 构造并签名 `APP_REP` 外层。 |
+| `func DecryptAPPReqPlain(cipher []byte, keyCV [8]byte) (APPReqPlain, int32)` | 解密 `Cipher_Data` 后解析 `Payload_Type/Payload_Len/Payload`。 |
+| `func BuildAPPRepPayload(payloadType uint8, exitCode int32, payload []byte, keyCV [8]byte, signV func([]byte) [256]byte) ([]byte, int32)` | 构造并签名 `APP_REP` 外层。 |
 
 ## 业务时序图展示
 
@@ -997,7 +998,7 @@ sequenceDiagram
     rect rgb(240, 248, 255)
     Note over C, D: 阶段一：指令下发与前置安全校验
     C->>V: APP_REQ [Cipher_Data + RSA_Sign_c]
-    Note right of V: 优先验签 (Early Drop)<br/>AES 解密提取 Command
+    Note right of V: 优先验签 (Early Drop)<br/>DES 解密提取 Command
     V->>D: 写入基础审计 (User, Cmd, 状态:进行中)
     V->>P: 唤起 PTY 伪终端执行 Command
     end
@@ -1114,7 +1115,7 @@ sequenceDiagram
     rect rgb(230, 230, 250)
     Note right of C: 阶段 4：业务指令执行 (EtS 认证加密)
     Web->>C: POST /api/exec {command / payload}
-    Note right of C: 使用 K_c_v 进行 AES 加密<br/>追加 RSA_Sign_c 外层签名
+    Note right of C: 使用 K_c_v 进行 DES 加密<br/>追加 RSA_Sign_c 外层签名
     C->>V: client_app_req() [发送 APP_REQ]
     Note right of V: V 优先验签，随后解密并挂载 PTY 执行
     V-->>C: 返回 APP_REP [含执行结果与 RSA_Sign_v]
@@ -1305,12 +1306,12 @@ client WEB API 监听 9883 端口：
 | `POST /api/login` | POST | 触发 AS → TGS → AP 三阶段认证 | 请求：`{username,password}` 返回：`{state, tgt_expire, tv_expire}` |
 | `GET /api/state` | GET | 当前 Client 状态 | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}` |
 | `GET /api/cert` | GET | 本 Client 证书 | `{id,issuer, public_key:{n,e}, expire, sign}` |
-| `SSE /api/logs` | SSE | 通信封包记录(实时回传 WEBUI) | `{logs: [{ts, type, packet_hex}]}` |
+| `SSE /api/logs` | SSE | 通信封包记录(实时回传 WEBUI) | `{logs: [{packet_ascii,decode_packet_ascii}]}` |
 | `Post /api/exec` | Post | 发送 Command CLI 命令或二进制数据 | `{ "type": 0x01/0x02, "data": payload }` |
 
 > 注意，Client 网络核心代理在通过 WEB API 拿到 json 数据解析后再进行网络封包
 >
-> `/api/login` 拿到 password 在本地调用 Key_c = sha256(password)并持久化存储 Key_c, 用于后续的加解密
+> `/api/login` 拿到的 password 必须是 **8 字节** 以适配 DES 加密要求
 >
 > `/api/exec` 调用时 payload 进行 **本地 base64 编码**，Client 核心代理拿到 `payload` 在 **本地 base64 解码**，解码后依照第九章报文格式封包
 
@@ -1324,9 +1325,18 @@ UI 分多个页面，分别是登录页面，终端页面，日志页面：
 
 - **日志页面：** 通过 SSE 实时展示 Client 收发的网络封包
 
-  - **封包展示**：对收发的每一个包，应该将完整封包转成 Hex 并通过 `/api/logs` 发回 client 前端展示，UI 设计参考 `wireshark`：
-
-  ![5fd4fcf2032ee8374b85d43df66b7c04](https://cdn.jsdelivr.net/gh/fsj2009yx/picserver@main/20260420163519316.png)
+  - **封包展示**：Client 对收发的每一个包，应该将 **完整 Packet 直接转 ASCII 字符串** 后通过 `/api/logs` 发回 client 前端，界面风格参考 `wireshark` 的“包列表 + 详情面板”。
+  - **未解包/解包对照**：左边展示 **Raw Packet** 右边展示 **Decoded Packet**：
+    - **Raw Packet：**
+      展示未解密封包的 ASCII byte dump。
+    - **Decoded Packet：**
+      展示解密后的报文布局，基于 struct 的原始二进制流进行 ASCII 编码
+      能够体现物理布局，但不进行 JSON / Key-Value 结构化展示
+  
+  
+  UI 风格参考 wireshark，tcpdump 等抓包软件：
+  
+  ![d7236276d778a80bd29ecb330102a261](https://cdn.jsdelivr.net/gh/fsj2009yx/picserver@main/20260421113559853.png)
 
 # 第七章　封包与拆包详细设计
 
@@ -1639,7 +1649,7 @@ struct Ker_Header {
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生成 K_c, tgs（随机 32 字节）→ 构造 Ticket_TGS → 用 Kc 加密整体响应内容
+AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生成 K_c, tgs（随机 8 字节）→ 构造 Ticket_TGS → 用 Kc 加密整体响应内容
 
 ---
 
@@ -1658,7 +1668,7 @@ AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生�
 |                          Cipher_Len                           |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Enc_Part (AES-256-CBC 密文)                   |
+|                    Enc_Part (DES-CBC 密文)                     |
 |          (解密密钥: Kc)                                         |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -1672,19 +1682,19 @@ AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生�
 
 | **相对偏移**         | **数据类型**  | **字段名**     | **说明 (Comment)**                            |
 | -------------------- | ------------- | -------------- | --------------------------------------------- |
-| +0                   | **uint8 [32]** | **Key_c_tgs**  | AS 分配给 C 和 TGS 的会话密钥 (Session Key)。 |
-| +32                  | **Kstring**   | **ID_TGS**     | 目标 TGS 的身份标识（变长字符串）。           |
-| + (32 + 2 + Len_TGS) | **uint32**    | **TS2**        | Ticket 的签发时间戳。                         |
-| + (36 + 2 + Len_TGS) | **uint32**    | **Lifetime**   | Ticket 的有效期（秒）。                       |
-| + (40 + 2 + Len_TGS) | **uint32**    | **Ticket_Len** | 后续 Ticket_TGS 密文块的字节数。              |
-| + (44 + 2 + Len_TGS) | **uint8 []**   | **Ticket_TGS** | 由 $K_{tgs}$ 加密的密文块（客户端视作黑盒）。 |
+| +0                  | **uint8 [8]** | **Key_c_tgs**  | AS 分配给 C 和 TGS 的会话密钥 (Session Key)。 |
+| +8                  | **Kstring**   | **ID_TGS**     | 目标 TGS 的身份标识（变长字符串）。           |
+| + (8 + 2 + Len_TGS) | **uint32**    | **TS2**        | Ticket 的签发时间戳。                         |
+| + (12 + 2 + Len_TGS) | **uint32**   | **Lifetime**   | Ticket 的有效期（秒）。                       |
+| + (16 + 2 + Len_TGS) | **uint32**   | **Ticket_Len** | 后续 Ticket_TGS 密文块的字节数。              |
+| + (20 + 2 + Len_TGS) | **uint8 []** | **Ticket_TGS** | 由 $K_{tgs}$ 加密的密文块（客户端视作黑盒）。 |
 
 ```plain
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Key_c_tgs (32字节 Session Key)                |
+|                  Key_c_tgs (8字节 Session Key)                 |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |       ID_TGS_Len (uint16)     |                               |
@@ -1712,19 +1722,19 @@ AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生�
 
 | **相对偏移**             | **数据类型**  | **字段名**    | **说明 (Comment)**                     |
 | ------------------------ | ------------- | ------------- | -------------------------------------- |
-| +0                       | **uint8 [32]** | **Key_c_tgs** | Session Key，需与外层解出的一致。      |
-| +32                      | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。 |
-| + (32 + 2 + Len_C)       | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。             |
-| + (36 + 2 + Len_C)       | **Kstring**   | **ID_TGS**    | **变长**：校验该票据是否发给本 TGS。   |
-| + (38 + Len_C + Len_TGS) | **uint32**    | **TS2**       | 签发时间戳，用于计算是否过期。         |
-| + (42 + Len_C + Len_TGS) | **uint32**    | **Lifetime**  | 票据生命周期。                         |
+| +0                      | **uint8 [8]** | **Key_c_tgs** | Session Key，需与外层解出的一致。      |
+| +8                      | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。 |
+| + (8 + 2 + Len_C)       | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。             |
+| + (12 + 2 + Len_C)      | **Kstring**   | **ID_TGS**    | **变长**：校验该票据是否发给本 TGS。   |
+| + (14 + Len_C + Len_TGS) | **uint32**   | **TS2**       | 签发时间戳，用于计算是否过期。         |
+| + (18 + Len_C + Len_TGS) | **uint32**   | **Lifetime**  | 票据生命周期。                         |
 
 ```plain
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Key_c_tgs (32字节 Session Key)                |
+|                  Key_c_tgs (8字节 Session Key)                 |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |      ID_Client_Len (uint16)   |                               |
@@ -1812,7 +1822,7 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 |                          Cipher_Len                           |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Enc_Part (AES-256-CBC 密文)                   |
+|                    Enc_Part (DES-CBC 密文)                     |
 |                        (解密密钥: K_c_tgs)                      |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -1826,19 +1836,19 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 
 | **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                           |
 | ------------------------------ | ------------------- | ----------------------- | ------------------------------------------------------------ |
-| +0                             | **uint8 [32]**       | **Key_c_v**             | 客户端与业务服务器 V 通信的会话密钥 (Session Key)。          |
-| +32                            | **Kstring**         | **ID_V**                | 业务服务器身份标识。包含 2 字节长度前缀 + 变长 UTF-8 字符串。 |
-| + (32 + 2 + Len_V)             | **uint32**          | **TS4**                 | TGS 签发该票据的 Unix 时间戳（大端序）。                     |
-| + (36 + 2 + Len_V)             | **uint32**          | **Lifetime**            | 该票据的有效时长（秒）。                                     |
-| + (40 + 2 + Len_V)             | **uint32**          | **Ticket_V_Len**        | 后续 `Ticket_V` 密文块的字节长度。                           |
-| + (44 + 2 + Len_V)             | **uint8 []**         | **Ticket_V**            | 由 $K_v$ 加密的密文块，客户端将其视为黑盒，后续在 AP_REQ 中透传。 |
+| +0                            | **uint8 [8]**       | **Key_c_v**             | 客户端与业务服务器 V 通信的会话密钥 (Session Key)。          |
+| +8                            | **Kstring**         | **ID_V**                | 业务服务器身份标识。包含 2 字节长度前缀 + 变长 UTF-8 字符串。 |
+| + (8 + 2 + Len_V)             | **uint32**          | **TS4**                 | TGS 签发该票据的 Unix 时间戳（大端序）。                     |
+| + (12 + 2 + Len_V)            | **uint32**          | **Lifetime**            | 该票据的有效时长（秒）。                                     |
+| + (16 + 2 + Len_V)            | **uint32**          | **Ticket_V_Len**        | 后续 `Ticket_V` 密文块的字节长度。                           |
+| + (20 + 2 + Len_V)            | **uint8 []**        | **Ticket_V**            | 由 $K_v$ 加密的密文块，客户端将其视为黑盒，后续在 AP_REQ 中透传。 |
 
 ```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Key_c_v (32字节 Session Key)                  |
+|                  Key_c_v (8字节 Session Key)                   |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |        ID_V_Len (uint16)      |                               |
@@ -1866,19 +1876,19 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 
 | **相对偏移**           | **数据类型**  | **字段名**    | **说明 (Comment)**                                  |
 | ---------------------- | ------------- | ------------- | --------------------------------------------------- |
-| +0                     | **uint8 [32]** | **Key_c_v**   | Session Key。服务器将使用此密钥解密客户端的验证器。 |
-| +32                    | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。              |
-| + (32 + 2 + Len_C)     | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。                          |
-| + (36 + 2 + Len_C)     | **Kstring**   | **ID_V**      | **变长**：校验该票据是否确实是发给本服务器。        |
-| + (38 + Len_C + Len_V) | **uint32**    | **TS4**       | 签发时间戳。                                        |
-| + (42 + Len_C + Len_V) | **uint32**    | **Lifetime**  | 票据生命周期。                                      |
+| +0                    | **uint8 [8]** | **Key_c_v**   | Session Key。服务器将使用此密钥解密客户端的验证器。 |
+| +8                    | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。              |
+| + (8 + 2 + Len_C)     | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。                          |
+| + (12 + 2 + Len_C)    | **Kstring**   | **ID_V**      | **变长**：校验该票据是否确实是发给本服务器。        |
+| + (14 + Len_C + Len_V) | **uint32**   | **TS4**       | 签发时间戳。                                        |
+| + (18 + Len_C + Len_V) | **uint32**   | **Lifetime**  | 票据生命周期。                                      |
 
 ```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Key_c_v (32字节 Session Key)                  |
+|                  Key_c_v (8字节 Session Key)                   |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |      ID_Client_Len (uint16)   |                               |
@@ -1951,7 +1961,7 @@ V 收到后：用 K_v 解密 Ticket_V → 用 K_c, v 解密 Authenticator
 |                          Cipher_Len                           |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
-|                  Enc_Part (AES-256-CBC 密文)                   |
+|                    Enc_Part (DES-CBC 密文)                     |
 |         (解密密钥: K_c_v)                                       |
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -2004,7 +2014,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
  |      Cipher_Len (uint16)      |                               |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
  |                                                               |
- |    Cipher_Data (AES 加密部分，包含前置 IV) ----------------.      |
+ |    Cipher_Data (DES 加密部分，包含前置 IV) ----------------.      |
  |                                                 |             |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             |
  |                                                               |
@@ -2033,7 +2043,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 1. **业务封装与加密**：
 
-   将 `Payload_Type`、`Payload_Len`、`Payload` 拼接并填充，使用 `Key_c_v` 执行 AES-256-CBC 加密，得到 `Cipher_Data`。
+   将 `Payload_Type`、`Payload_Len`、`Payload` 拼接并填充，使用 `Key_c_v` 执行 DES-CBC 加密，得到 `Cipher_Data`。
 
 2. **待签名数据**：
 
@@ -2061,7 +2071,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 3. **解密业务**：
 
-   验签成功后，才调用 AES 解密 `Cipher_Data` 并分发业务逻辑。
+   验签成功后，才调用 DES 解密 `Cipher_Data` 并分发业务逻辑。
 
 ---
 
@@ -2089,7 +2099,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
  |      Cipher_Len (uint16)      |                               |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
  |                                                               |
- |    Cipher_Data (AES 加密部分，包含前置 IV) ----------------.      |
+ |    Cipher_Data (DES 加密部分，包含前置 IV) ----------------.      |
  |                                                 |             |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+             |
  |                                                               |
@@ -2116,7 +2126,7 @@ Server 在 `spawn` 执行完毕后，执行以下逻辑：
 
 1. **业务序列化与加密**：
 
-   先将业务字段（`Payload_Type`、`Exit_Code`、`Payload_Len`、`Payload`）拼接，进行 PKCS7 填充，并用 `Key_c_v` 完成 AES-256-CBC 加密，生成完整的 `Cipher_Data`（包含 16 字节 IV）。
+   先将业务字段（`Payload_Type`、`Exit_Code`、`Payload_Len`、`Payload`）拼接，进行 PKCS7 填充，并用 `Key_c_v` 完成 DES-CBC 加密，生成完整的 `Cipher_Data`（包含 8 字节 IV）。
 
 2. **待签名消息载荷 (M)**：
 
@@ -2151,84 +2161,77 @@ Client 收到 **APP_REP** 后：
 
    检验 $H_{\text{dec}} \stackrel{?}{=} \text{SHA256}(M')$
 
-   - ⛔ **如果不等**：说明密文在传输过程中被篡改，**直接丢弃该包，严禁调用 AES 解密**，防止 padding oracle 等密码学侧信道攻击。
-   - ✅ **如果相等**：再将安全的 `Cipher_Data` 送入 AES-256-CBC 模块解密，最后解析 TLV 业务明文。
+   - ⛔ **如果不等**：说明密文在传输过程中被篡改，**直接丢弃该包，严禁调用 DES 解密**，防止 padding oracle 等密码学侧信道攻击。
+   - ✅ **如果相等**：再将安全的 `Cipher_Data` 送入 DES-CBC 模块解密，最后解析 TLV 业务明文。
 
 # 第十章　关键算法伪代码
 
-## AES-256 密钥扩展
+## DES 子密钥生成
 
 ```
-函数 KeyExpansion(key[32 字节]) → round_keys[15][16 字节]:
+函数 DES_KeySchedule(key[8 字节]) → sub_keys[16]:
 
-    // 将 32 字节密钥转为 8 个 32 位字（大端序读取）
-    for i = 0 to 7:
-        W[i] = (key[4i] << 24) | (key[4i+1] << 16) | (key[4i+2] << 8) | key[4i+3]
+    // Step 1: 64 位密钥做 PC-1 置换，去掉奇偶校验位得到 56 位
+    key56 = PC1_Permute(key)   // 56 bit
 
-    // 生成剩余 52 个字（共 60 个字 = 15 组轮密钥）
-    for i = 8 to 59:
-        temp = W[i-1]
-        if i mod 8 == 0:
-            temp = SubWord(RotWord(temp)) XOR Rcon[i/8]
-            // RotWord: 字节循环左移 [a,b,c,d] → [b,c,d,a]
-            // SubWord: 对每个字节查 S-Box 替换
-            // Rcon[j] = (xtime^(j-1)(0x01) << 24)（GF(2^8) 中 2 的幂次）
-        else if i mod 8 == 4:
-            temp = SubWord(temp)
-        W[i] = W[i-8] XOR temp
+    // Step 2: 切分为左右 28 位
+    C = key56[0..27]
+    D = key56[28..55]
 
-    // 将 W[0..59] 按每 4 个字分组为 15 组轮密钥（每组 16 字节）
-    for r = 0 to 14:
-        for j = 0 to 3:
-            round_keys[r][4j..4j+3] = 大端序写入 W[4r + j]
+    // Step 3: 按轮移位并做 PC-2 压缩，得到 16 组 48 位子密钥
+    shift_table = [1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1]
+    for round = 1 to 16:
+        C = LeftRotate28(C, shift_table[round-1])
+        D = LeftRotate28(D, shift_table[round-1])
+        sub_keys[round-1] = PC2_Permute(C || D)   // 48 bit
 ```
 
-## AES-256 CBC 加密完整流程
+## DES CBC 加密完整流程
 
 ```
-函数 aes256_cbc_encrypt(plain, plain_len, key, iv) → cipher, cipher_len:
+函数 des_cbc_encrypt(plain, plain_len, key, iv) → cipher, cipher_len:
 
     // Step 1: PKCS7 填充
-    pad_len = 16 - (plain_len mod 16)   // 注意：若 plain_len 是 16 的倍数，pad_len = 16
+    pad_len = 8 - (plain_len mod 8)      // 若 plain_len 是 8 的倍数，pad_len = 8
     padded = plain + 字节数组([pad_len] * pad_len)
-    padded_len = plain_len + pad_len    // padded_len 必然是 16 的倍数
+    padded_len = plain_len + pad_len     // padded_len 必然是 8 的倍数
 
-    // Step 2: 密钥扩展
-    round_keys = KeyExpansion(key)
+    // Step 2: 子密钥生成
+    sub_keys = DES_KeySchedule(key)
 
     // Step 3: 前置 IV（IV 明文发送）
-    cipher = iv                          // 将 16 字节 IV 放在密文最前面
+    cipher = iv                          // 将 8 字节 IV 放在密文最前面
 
     // Step 4: CBC 模式加密（逐块处理）
     prev_block = iv                      // 初始化链式变量
-    for i = 0 to (padded_len / 16 - 1):
-        block = padded[i*16 .. i*16+15]
+    for i = 0 to (padded_len / 8 - 1):
+        block = padded[i*8 .. i*8+7]
         xor_block = block XOR prev_block    // CBC 核心：与前一密文块 XOR
-        cipher_block = AES_Encrypt_Block(xor_block, round_keys)   // 14 轮 AES 加密
+        cipher_block = DES_Encrypt_Block(xor_block, sub_keys)      // 16 轮 DES 加密
         cipher += cipher_block
         prev_block = cipher_block
 
-    cipher_len = 16 + padded_len         // IV(16) + 加密后的填充明文
+    cipher_len = 8 + padded_len          // IV(8) + 加密后的填充明文
 ```
 
 ## PKCS7 填充与去除
 
 ```
-函数 pkcs7_pad(data, block_size=16) → padded_data:
+函数 pkcs7_pad(data, block_size=8) → padded_data:
     pad_len = block_size - (len(data) % block_size)
     // 当 len(data) 是 block_size 的倍数时，pad_len = block_size（添加一整块填充）
     // 这保证了去除填充时不会歧义
     return data + bytes([pad_len] * pad_len)
 
 函数 pkcs7_unpad(data) → original_data:
-    if len(data) == 0 or len(data) % 16 != 0:
-        raise ERR_AES_DECRYPT_FAIL    // 密文长度必须是块大小的倍数
+    if len(data) == 0 or len(data) % 8 != 0:
+        raise ERR_DES_DECRYPT_FAIL    // 密文长度必须是块大小的倍数
     pad_len = data[-1]                // 最后一个字节就是填充长度
-    if pad_len < 1 or pad_len > 16:
-        raise ERR_AES_DECRYPT_FAIL    // 填充长度非法
+    if pad_len < 1 or pad_len > 8:
+        raise ERR_DES_DECRYPT_FAIL    // 填充长度非法
     for i = len(data)-pad_len to len(data)-1:
         if data[i] != pad_len:
-            raise ERR_AES_DECRYPT_FAIL    // 填充内容不一致
+            raise ERR_DES_DECRYPT_FAIL    // 填充内容不一致
     return data[0 : len(data) - pad_len]
 ```
 
