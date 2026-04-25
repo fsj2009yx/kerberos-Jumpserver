@@ -1,0 +1,112 @@
+:root {
+  --bg: #f3f6fa;
+  --panel: #ffffff;
+  --menu-bg: #18243a;
+  --menu-bg-active: #274066;
+  --menu-text: #e8efff;
+  --text: #1c2635;
+  --border: #d7deea;
+  --accent: #0c6bdc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+  color: var(--text);
+  background: linear-gradient(135deg, #e7edf7 0%, #f8fbff 100%);
+}
+
+.layout {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+
+.menu-panel {
+  background: var(--menu-bg);
+  color: var(--menu-text);
+  padding: 20px 14px;
+}
+
+.menu-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 18px;
+  letter-spacing: 0.02em;
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--menu-text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.menu-item:hover,
+.menu-item.is-active {
+  background: var(--menu-bg-active);
+}
+
+.main-panel {
+  padding: 22px;
+}
+
+.main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.main-header h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+#healthBtn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.content-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  min-height: 200px;
+  box-shadow: 0 10px 28px rgba(16, 41, 72, 0.06);
+}
+
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .menu-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
