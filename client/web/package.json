@@ -1,0 +1,23 @@
+{
+  "name": "kerberos-web-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron + TypeScript web client skeleton",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "dev": "npm run start"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.18",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.10",
+    "electron": "^34.2.0",
+    "typescript": "^5.8.2"
+  }
+}

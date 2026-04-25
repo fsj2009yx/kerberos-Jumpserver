@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kerberos Web Client</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="menu-panel">
+        <div class="menu-title">Kerberos Client</div>
+        <nav class="menu-list" aria-label="Main menu">
+          <button class="menu-item is-active" data-view="login">Login</button>
+          <button class="menu-item" data-view="terminal">Terminal</button>
+          <button class="menu-item" data-view="logs">Logs</button>
+        </nav>
+      </aside>
+
+      <main class="main-panel">
+        <header class="main-header">
+          <h1 id="viewTitle">Dashboard</h1>
+          <button id="healthBtn" type="button">Check API Health</button>
+        </header>
+
+        <section id="content" class="content-card">
+          <p>Welcome. This is the main panel area.</p>
+          <p>Use the menu on the left to switch views.</p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../dist/renderer/app.js"></script>
+  </body>
+</html>
