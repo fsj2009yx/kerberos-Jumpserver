@@ -42,9 +42,10 @@
 
 ## 成员分工
 
+
 |    小组成员    |                         分工                         |
 | :------------: | :--------------------------------------------------: |
-| 成员 A（组长） |     负责 AS, TGS, V 的通信加密逻辑和 V 业务部署      |
+| 成员 A（组长） |     负责 AS, TGS, V 的通信加密逻辑和 V 业务部署     |
 | 成员 B，成员 C | 负责 Client 部分的通信加密逻辑，Restful API 接口设计 |
 | 成员 D |                负责 Client WEBUI 设计                |
 
@@ -91,53 +92,57 @@
 
 ### 设计原则与强制约束
 
-| 错误码 | 宏定义 | 适用模块 | 触发场景 | 处理策略 |
-|--------|--------|----------|----------|----------|
-| `0` | `KRB_OK` | 全局 | 操作成功 | 继续执行 |
-| `-1001` | `ERR_MAGIC_MISMATCH` | 拆包 | 接收到的前 2 字节不为 `0x4B45`，说明非 Kerberos 报文或数据被严重损坏 | 立即丢弃该报文，记录 WARN 级别日志（含对端 IP），关闭该连接 |
-| `-1002` | `ERR_VERSION_UNSUPPORTED` | 拆包 | Version 字段值不为 `0x01` | 发送错误响应后断开连接，记录日志（含实际版本号） |
-| `-1003` | `ERR_MSG_TYPE_INVALID` | 拆包 | MSG_TYPE 超出 `0x01`~`0x04` 已定义范围 | 丢弃报文，记录 WARN 日志 |
-| `-1004` | `ERR_PAYLOAD_TOO_LARGE` | 拆包 | `TotalLength` 字段值超过预设上限（建议 64KB） | 拒绝读取后续字节，断开连接，记录 WARN 日志 |
-| `-1005` | `ERR_REPLAY_TIMESTAMP` | 防重放 | 报文时间戳与服务端当前时间差值超过 5 秒（无论早于还是晚于） | 丢弃报文，返回 `-1005` 错误响应，记录 WARN 日志（含时间差值） |
-| `-1006` | `ERR_REPLAY_SEQ` | 防重放 | 该 `SEQ_NUM` 在滑动窗口内已被处理过（重复序列号） | 丢弃报文，返回 `-1006` 错误响应，记录 WARN 日志 |
-| `-1007` | `ERR_BUF_TOO_SMALL` | 封包/拆包 | 调用方提供的输出缓冲区不足以容纳封包结果 | 返回错误码，调用方应扩容缓冲区后重试，最多重试 3 次 |
-| `-1008` | `ERR_SOCKET_SEND` | 网络层 | `send()` 系统调用返回 -1 或发送字节数少于预期 | 重试最多 3 次（每次间隔 100ms），失败后清理连接资源，记录 ERROR 日志 |
-| `-1009` | `ERR_SOCKET_RECV` | 网络层 | `recv()` 返回 0（对端正常关闭）或 -1（系统错误）| 清理该连接的所有资源（Session、缓冲区等），记录 INFO/ERROR 日志 |
-| `-1010` | `ERR_THREAD_CREATE` | 并发 | 线程池工作线程创建失败（系统资源不足） | 返回错误，向管理界面推送告警，记录 ERROR 日志 |
+
+| 错误码  | 宏定义                    | 适用模块  | 触发场景                                                            | 处理策略                                                             |
+| ------- | ------------------------- | --------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `0`     | `KRB_OK`                  | 全局      | 操作成功                                                            | 继续执行                                                             |
+| `-1001` | `ERR_MAGIC_MISMATCH`      | 拆包      | 接收到的前 2 字节不为`0x4B45`，说明非 Kerberos 报文或数据被严重损坏 | 立即丢弃该报文，记录 WARN 级别日志（含对端 IP），关闭该连接          |
+| `-1002` | `ERR_VERSION_UNSUPPORTED` | 拆包      | Version 字段值不为`0x01`                                            | 发送错误响应后断开连接，记录日志（含实际版本号）                     |
+| `-1003` | `ERR_MSG_TYPE_INVALID`    | 拆包      | MSG_TYPE 超出`0x01`~`0x04` 已定义范围                               | 丢弃报文，记录 WARN 日志                                             |
+| `-1004` | `ERR_PAYLOAD_TOO_LARGE`   | 拆包      | `TotalLength` 字段值超过预设上限（建议 64KB）                       | 拒绝读取后续字节，断开连接，记录 WARN 日志                           |
+| `-1005` | `ERR_REPLAY_TIMESTAMP`    | 防重放    | 报文时间戳与服务端当前时间差值超过 5 秒（无论早于还是晚于）         | 丢弃报文，返回`-1005` 错误响应，记录 WARN 日志（含时间差值）         |
+| `-1006` | `ERR_REPLAY_SEQ`          | 防重放    | 该`SEQ_NUM` 在滑动窗口内已被处理过（重复序列号）                    | 丢弃报文，返回`-1006` 错误响应，记录 WARN 日志                       |
+| `-1007` | `ERR_BUF_TOO_SMALL`       | 封包/拆包 | 调用方提供的输出缓冲区不足以容纳封包结果                            | 返回错误码，调用方应扩容缓冲区后重试，最多重试 3 次                  |
+| `-1008` | `ERR_SOCKET_SEND`         | 网络层    | `send()` 系统调用返回 -1 或发送字节数少于预期                       | 重试最多 3 次（每次间隔 100ms），失败后清理连接资源，记录 ERROR 日志 |
+| `-1009` | `ERR_SOCKET_RECV`         | 网络层    | `recv()` 返回 0（对端正常关闭）或 -1（系统错误）                    | 清理该连接的所有资源（Session、缓冲区等），记录 INFO/ERROR 日志      |
+| `-1010` | `ERR_THREAD_CREATE`       | 并发      | 线程池工作线程创建失败（系统资源不足）                              | 返回错误，向管理界面推送告警，记录 ERROR 日志                        |
 
 ### Kerberos 协议错误（-2000 段）
 
-| 错误码 | 宏定义 | 适用模块 | 触发场景 | 处理策略 |
-|--------|--------|----------|----------|----------|
-| `-2001` | `ERR_CLIENT_NOT_FOUND` | AS | `ID_Client` 在 AS 的客户端数据库中不存在 | 返回 AS 错误报文（不泄露具体原因），记录 WARN 日志 |
-| `-2002` | `ERR_TICKET_EXPIRED` | TGS / V | `Ticket.TS + Ticket.Lifetime < 当前时间`，票据已失效 | 返回票据过期错误响应，Client 应重新走 AS 或 TGS 阶段 |
-| `-2003` | `ERR_TICKET_INVALID` | TGS / V | Ticket 解密失败（密钥不匹配）或解密后字段长度非法 | 返回票据无效错误，记录 SECURITY 日志（疑似伪造攻击） |
-| `-2004` | `ERR_AUTH_MISMATCH` | TGS / V | `Authenticator.ID_Client` 与 `Ticket.ID_Client` 不一致 | 拒绝请求，记录 SECURITY 日志（身份伪造特征） |
-| `-2005` | `ERR_AD_MISMATCH` | TGS / V | `Authenticator.AD_c`（客户端 IP）与 `Ticket.AD_c` 不一致 | 拒绝请求，记录 SECURITY 日志（中间人攻击特征） |
-| `-2006` | `ERR_KEY_DERIVE` | AS / TGS | `krb_rand_bytes()` 随机数生成失败，无法生成 Session Key | 返回服务端错误，向运维告警，记录 ERROR 日志 |
-| `-2007` | `ERR_SESSION_NOT_FOUND` | V | 收到业务消息但找不到对应 Client 的 Session（Client 未完成 AP 认证）| 要求 Client 重新走 AP 认证阶段 |
+
+| 错误码  | 宏定义                  | 适用模块 | 触发场景                                                            | 处理策略                                             |
+| ------- | ----------------------- | -------- | ------------------------------------------------------------------- | ---------------------------------------------------- |
+| `-2001` | `ERR_CLIENT_NOT_FOUND`  | AS       | `ID_Client` 在 AS 的客户端数据库中不存在                            | 返回 AS 错误报文（不泄露具体原因），记录 WARN 日志   |
+| `-2002` | `ERR_TICKET_EXPIRED`    | TGS / V  | `Ticket.TS + Ticket.Lifetime < 当前时间`，票据已失效                | 返回票据过期错误响应，Client 应重新走 AS 或 TGS 阶段 |
+| `-2003` | `ERR_TICKET_INVALID`    | TGS / V  | Ticket 解密失败（密钥不匹配）或解密后字段长度非法                   | 返回票据无效错误，记录 SECURITY 日志（疑似伪造攻击） |
+| `-2004` | `ERR_AUTH_MISMATCH`     | TGS / V  | `Authenticator.ID_Client` 与 `Ticket.ID_Client` 不一致              | 拒绝请求，记录 SECURITY 日志（身份伪造特征）         |
+| `-2005` | `ERR_AD_MISMATCH`       | TGS / V  | `Authenticator.AD_c`（客户端 IP）与 `Ticket.AD_c` 不一致            | 拒绝请求，记录 SECURITY 日志（中间人攻击特征）       |
+| `-2006` | `ERR_KEY_DERIVE`        | AS / TGS | `krb_rand_bytes()` 随机数生成失败，无法生成 Session Key             | 返回服务端错误，向运维告警，记录 ERROR 日志          |
+| `-2007` | `ERR_SESSION_NOT_FOUND` | V        | 收到业务消息但找不到对应 Client 的 Session（Client 未完成 AP 认证） | 要求 Client 重新走 AP 认证阶段                       |
 
 ### 加密模块错误（-3000 段）
 
-| 错误码 | 宏定义 | 适用模块 | 触发场景 | 处理策略 |
-|--------|--------|----------|----------|----------|
-| `-3001` | `ERR_DES_KEY_LEN` | DES | 传入的密钥长度不等于 8 字节 | 拒绝加密操作，调用方须检查密钥来源逻辑 |
-| `-3002` | `ERR_DES_PADDING` | DES | PKCS7 填充计算异常（明文长度溢出或对齐逻辑错误） | 返回错误，调用方应检查明文缓冲区 |
-| `-3003` | `ERR_DES_DECRYPT_FAIL` | DES | 解密后 PKCS7 校验失败：填充字节值不合法（<1 或 > 8）或填充内容不一致 | 丢弃解密结果，返回错误；在 TGS/V 侧记录 SECURITY 日志（疑似密文被篡改）|
-| `-3004` | `ERR_RSA_KEY_INVALID` | RSA | RSA Key 结构体中 `n`/`e`/`d` 任一字段为零，或结构未初始化 | 拒绝所有涉及该密钥的操作，记录 ERROR 日志 |
-| `-3005` | `ERR_RSA_SIGN_FAIL` | RSA | RSA 模幂运算中出现内部错误（大整数溢出等） | 返回错误，调用方不得发送带有错误签名的消息 |
-| `-3006` | `ERR_RSA_VERIFY_FAIL` | RSA | 验签失败：解密后的 EMSA 编码与重新计算的 Hash 不匹配 | 立即拒绝该请求，记录 SECURITY 日志（疑似消息伪造或私钥泄露） |
-| `-3007` | `ERR_HMAC_MISMATCH` | HMAC | 接收到的 MAC 值与重新计算的 HMAC 不匹配 | 丢弃整条消息，记录 SECURITY 日志（消息被篡改） |
-| `-3008` | `ERR_SHA256_FAIL` | SHA-256 | SHA-256 内部计算异常（极罕见，通常指内存错误）| 返回错误，记录 ERROR 日志 |
+
+| 错误码  | 宏定义                 | 适用模块 | 触发场景                                                             | 处理策略                                                                |
+| ------- | ---------------------- | -------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `-3001` | `ERR_DES_KEY_LEN`      | DES      | 传入的密钥长度不等于 8 字节                                          | 拒绝加密操作，调用方须检查密钥来源逻辑                                  |
+| `-3002` | `ERR_DES_PADDING`      | DES      | PKCS7 填充计算异常（明文长度溢出或对齐逻辑错误）                     | 返回错误，调用方应检查明文缓冲区                                        |
+| `-3003` | `ERR_DES_DECRYPT_FAIL` | DES      | 解密后 PKCS7 校验失败：填充字节值不合法（<1 或 > 8）或填充内容不一致 | 丢弃解密结果，返回错误；在 TGS/V 侧记录 SECURITY 日志（疑似密文被篡改） |
+| `-3004` | `ERR_RSA_KEY_INVALID`  | RSA      | RSA Key 结构体中`n`/`e`/`d` 任一字段为零，或结构未初始化             | 拒绝所有涉及该密钥的操作，记录 ERROR 日志                               |
+| `-3005` | `ERR_RSA_SIGN_FAIL`    | RSA      | RSA 模幂运算中出现内部错误（大整数溢出等）                           | 返回错误，调用方不得发送带有错误签名的消息                              |
+| `-3006` | `ERR_RSA_VERIFY_FAIL`  | RSA      | 验签失败：解密后的 EMSA 编码与重新计算的 Hash 不匹配                 | 立即拒绝该请求，记录 SECURITY 日志（疑似消息伪造或私钥泄露）            |
+| `-3007` | `ERR_HMAC_MISMATCH`    | HMAC     | 接收到的 MAC 值与重新计算的 HMAC 不匹配                              | 丢弃整条消息，记录 SECURITY 日志（消息被篡改）                          |
+| `-3008` | `ERR_SHA256_FAIL`      | SHA-256  | SHA-256 内部计算异常（极罕见，通常指内存错误）                       | 返回错误，记录 ERROR 日志                                               |
 
 ### 证书错误（-4000 段）
 
-| 错误码 | 宏定义 | 适用模块 | 触发场景 | 处理策略 |
-|--------|--------|----------|----------|----------|
-| `-4001` | `ERR_CERT_EXPIRED` | 证书管理 | 证书的 `expire` 日期早于系统当前日期 | 拒绝该证书对应的通信，向 WebUI 推送证书过期告警 |
-| `-4002` | `ERR_CERT_SIG_INVALID` | 证书管理 | 证书的 `sign` 字段无法通过证书自身公钥的 RSA 验签 | 拒绝通信，记录 SECURITY 日志（证书被篡改或伪造） |
-| `-4003` | `ERR_CERT_ID_MISMATCH` | 证书管理 | 证书中的 `id` 字段与 Ticket 中的 `ID_Client` 不一致 | 拒绝通信，记录 SECURITY 日志 |
-| `-4004` | `ERR_CERT_LOAD_FAIL` | 证书管理 | 证书 JSON 文件不存在、格式非法或字段缺失 | 节点启动时若关键证书加载失败，应终止启动并报错 |
+
+| 错误码  | 宏定义                 | 适用模块 | 触发场景                                           | 处理策略                                         |
+| ------- | ---------------------- | -------- | -------------------------------------------------- | ------------------------------------------------ |
+| `-4001` | `ERR_CERT_EXPIRED`     | 证书管理 | 证书的`expire` 日期早于系统当前日期                | 拒绝该证书对应的通信，向 WebUI 推送证书过期告警  |
+| `-4002` | `ERR_CERT_SIG_INVALID` | 证书管理 | 证书的`sign` 字段无法通过证书自身公钥的 RSA 验签   | 拒绝通信，记录 SECURITY 日志（证书被篡改或伪造） |
+| `-4003` | `ERR_CERT_ID_MISMATCH` | 证书管理 | 证书中的`id` 字段与 Ticket 中的 `ID_Client` 不一致 | 拒绝通信，记录 SECURITY 日志                     |
+| `-4004` | `ERR_CERT_LOAD_FAIL`   | 证书管理 | 证书 JSON 文件不存在、格式非法或字段缺失           | 节点启动时若关键证书加载失败，应终止启动并报错   |
 
 **响应方函数调用收到错误码后，响应报文的 `Protocol Header` 中 `msg_type` 填入 `0xff`，同时将错误码按 `int32_t` 写入 `PayLoad` 中发送，随后调用 `关闭 TCP 流` 函数**
 
@@ -275,16 +280,17 @@ struct Ker_Header {
 // sizeof(Ker_Header) 必须恰好等于 20 字节，请在编译期用 static_assert 验证
 ```
 
-| `msg_type` 值 | 含义 |
-|:---:|---|
-| `0x01` | AS_REQ（Client → AS） |
-| `0x02` | AS_REP（AS → Client） |
-| `0x03` | TGS_REQ（Client → TGS） |
-| `0x04` | TGS_REP（TGS → Client） |
-| `0x05` | AP_REQ（Client → V） |
-| `0x06` | AP_REP（V → Client） |
-| `0x07` | 业务消息（Client → V，认证后） |
-| `0xff` | 错误响应（任意节点发出） |
+
+| `msg_type` 值 | 含义                            |
+| :-----------: | ------------------------------- |
+|    `0x01`    | AS_REQ（Client → AS）          |
+|    `0x02`    | AS_REP（AS → Client）          |
+|    `0x03`    | TGS_REQ（Client → TGS）        |
+|    `0x04`    | TGS_REP（TGS → Client）        |
+|    `0x05`    | AP_REQ（Client → V）           |
+|    `0x06`    | AP_REP（V → Client）           |
+|    `0x07`    | 业务消息（Client → V，认证后） |
+|    `0xff`    | 错误响应（任意节点发出）        |
 
 ---
 
@@ -404,6 +410,7 @@ DES 是经典的分组对称加密算法。本项目使用 **64 位密钥（8 �
 CBC 模式通过将前一个密文块与当前明文块进行 XOR 后再加密，使得相同的明文在不同位置产生不同的密文，有效抵御 ECB 模式下的明文模式攻击。
 
 DES 的核心参数：
+
 - **密钥长度**：64 位（8 字节，实际有效密钥位 56 位）
 - **块大小**：64 位（8 字节）
 - **轮数**：16 轮 Feistel 轮函数
@@ -463,6 +470,7 @@ int32_t des_cbc_decrypt(
 **S-Box（替换盒）**：DES 使用 8 个固定 S-Box（每个 6bit 输入到 4bit 输出），可直接硬编码查表实现。
 
 **子密钥生成（Key Schedule）**：
+
 1. 对 64 位原始密钥执行 PC-1 置换，得到 `C0(28bit)` 与 `D0(28bit)`。
 2. 按轮移位表执行左循环移位，得到 `C1..C16`、`D1..D16`。
 3. 每轮将 `Ci || Di` 通过 PC-2 置换压缩为 48 位子密钥 `K1..K16`。
@@ -508,6 +516,7 @@ int32_t sha256_final(SHA256_Ctx* ctx, uint8_t digest[32]);   // 执行填充并�
 ### 实现要点
 
 **初始哈希值（H0~H7）**：这些是前 8 个素数（2, 3, 5, 7, 11, 13, 17, 19）的平方根的小数部分，取前 32 位（硬编码）：
+
 ```
 H0=0x6a09e667, H1=0xbb67ae85, H2=0x3c6ef372, H3=0xa54ff53a,
 H4=0x510e527f, H5=0x9b05688c, H6=0x1f83d9ab, H7=0x5be0cd19
@@ -534,6 +543,7 @@ RSA 是最广泛使用的非对称加密算法。安全性基于大整数分解�
 在本项目中，**RSA 仅用于数字签名 Client** 对每条消息用自己的 RSA 私钥签名，V 服务器用 Client 证书中的公钥验签，确保消息的不可否认性（即 Client 无法否认发送过该消息）。
 
 RSA-2048 的参数：
+
 - **模数 n**：2048 位（256 字节）= 两个 1024 位素数 p 和 q 的乘积
 - **公钥指数 e**：通常为 65537（`0x010001`）
 - **私钥指数 d**：满足 `e*d ≡ 1 (mod φ(n))`，φ(n) = (p-1)(q-1)
@@ -614,13 +624,11 @@ EM = 0x00 || 0x01 || PS || 0x00 || DigestInfo || Hash
 其中：
 
 - `PS`：填充字符串，内容全为 `0xFF`，长度 = 256 - 3 - 19(DigestInfo 前缀) - 32(Hash) = **202 字节**
-
 - `DigestInfo`（SHA-256 的 DER 编码前缀，固定 19 字节）：
 
   ```
   30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20
   ```
-
 - `Hash`：32 字节 SHA-256 摘要
 
 验签时，公钥恢复出 EM 后，检查 `EM[0]=0x00`、`EM[1]=0x01`，找到第一个非 `0xFF` 字节位置（必须为 `0x00`），之后 19 字节须匹配 `DigestInfo` 前缀，最后 32 字节即为签名中携带的哈希值，与消息重新计算的哈希比对。
@@ -653,6 +661,7 @@ int32_t krb_rand_bytes(uint8_t* buf, uint32_t len);
 AS 是整个 Kerberos 体系的信任根。它是唯一知道每个客户端长期密钥 Kc 的服务器，也是唯一能够签发 TGT（Ticket Granting Ticket）的服务器
 
 AS 模块的设计遵循最小权限原则：
+
 - AS 不保存 Session Key 的完整记录（避免密钥库被盗导致的大规模密钥泄露）
 - AS 对外只开放 AS_REQ → AS_REP 这一种交互，不提供其他查询或修改接口
 - WebUI 接口只展示摘要信息，不暴露任何密钥明文
@@ -725,26 +734,28 @@ type ASState struct {
 
 ## 核心处理函数
 
-| 函数签名（Go） | Comment |
-|---|---|
-| `func ParseASReqPayload(raw []byte) (ASReqPayload, int32)` | 按第九章“消息 1”布局解析 `ID_Client + ID_TGS + TS1`。 |
-| `func BuildTicketTGSPlain(c ASClientSecret, idTGS string, keyCTGS [8]byte, ts2 uint32, lifetime uint32) ([]byte, int32)` | 组装 `Ticket_TGS` 明文字段（`Key_c_tgs/ID_Client/AD_c/ID_TGS/TS2/Lifetime`）。 |
-| `func BuildASRepPlain(keyCTGS [8]byte, idTGS string, ts2 uint32, lifetime uint32, ticketTGS []byte) ([]byte, int32)` | 组装 `AS_REP` 内层明文（第九章消息 2 第二层）。 |
-| `func BuildASRepPayload(encPart []byte) ([]byte, int32)` | 组装 `AS_REP` 外层 `Cipher_Len + Enc_Part`。 |
-| `func HandleASReq(h KerHeader, payload []byte, st *ASState) (respMsgType uint8, respPayload []byte, code int32)` | 处理 `AS_REQ` 并返回 `AS_REP` 或 `0xff` 错误负载。 |
-| `func BuildErrorPayload(code int32) []byte` | 按统一规范生成错误负载（`int32`）。 |
+
+| 函数签名（Go）                                                                                                           | Comment                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `func ParseASReqPayload(raw []byte) (ASReqPayload, int32)`                                                               | 按第九章“消息 1”布局解析`ID_Client + ID_TGS + TS1`。                        |
+| `func BuildTicketTGSPlain(c ASClientSecret, idTGS string, keyCTGS [8]byte, ts2 uint32, lifetime uint32) ([]byte, int32)` | 组装`Ticket_TGS` 明文字段（`Key_c_tgs/ID_Client/AD_c/ID_TGS/TS2/Lifetime`）。 |
+| `func BuildASRepPlain(keyCTGS [8]byte, idTGS string, ts2 uint32, lifetime uint32, ticketTGS []byte) ([]byte, int32)`     | 组装`AS_REP` 内层明文（第九章消息 2 第二层）。                                |
+| `func BuildASRepPayload(encPart []byte) ([]byte, int32)`                                                                 | 组装`AS_REP` 外层 `Cipher_Len + Enc_Part`。                                   |
+| `func HandleASReq(h KerHeader, payload []byte, st *ASState) (respMsgType uint8, respPayload []byte, code int32)`         | 处理`AS_REQ` 并返回 `AS_REP` 或 `0xff` 错误负载。                             |
+| `func BuildErrorPayload(code int32) []byte`                                                                              | 按统一规范生成错误负载（`int32`）。                                           |
 
 ## 3.4　WebUI API 接口
 
 AS 的 WebUI 运行在独立 HTTP 端口（默认 9881），提供只读的监控和调试接口, 不做控制
 
-| 路径 | 方法 | 说明 | 返回 JSON 关键字段 |
-|------|------|------|-------------------|
-| `GET /api/status` | GET | AS 节点整体状态 | `{node_id, uptime_s, total_tgt_issued, total_auth_fail, thread_pool_size, thread_pool_busy, client_count}` |
-| `GET /api/auth_log?limit=100&offset=0` | GET | 认证日志（分页，时间倒序）| `{total, logs: [{ts, client_id, result, tgt_sha256, lifetime}]}` |
-| `GET /api/clients` | GET | 已注册客户端列表 | `{clients: [{id, cert_id, cert_expire}]}` |
-| `GET /api/cert/:id` | GET | 获取指定客户端证书 | `{id, public_key:{n,e}, expire, sign}` |
-| `GET /api/keys_summary` | GET | 已分发密钥摘要（不含明文）| `{keys: [{client_id, k_ctgs_sha256, issued_at, expire_at}]}` |
+
+| 路径                                   | 方法 | 说明                       | 返回 JSON 关键字段                                                                                         |
+| -------------------------------------- | ---- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET /api/status`                      | GET  | AS 节点整体状态            | `{node_id, uptime_s, total_tgt_issued, total_auth_fail, thread_pool_size, thread_pool_busy, client_count}` |
+| `GET /api/auth_log?limit=100&offset=0` | GET  | 认证日志（分页，时间倒序） | `{total, logs: [{ts, client_id, result, tgt_sha256, lifetime}]}`                                           |
+| `GET /api/clients`                     | GET  | 已注册客户端列表           | `{clients: [{id, cert_id, cert_expire}]}`                                                                  |
+| `GET /api/cert/:id`                    | GET  | 获取指定客户端证书         | `{id, public_key:{n,e}, expire, sign}`                                                                     |
+| `GET /api/keys_summary`                | GET  | 已分发密钥摘要（不含明文） | `{keys: [{client_id, k_ctgs_sha256, issued_at, expire_at}]}`                                               |
 
 ---
 
@@ -842,24 +853,26 @@ type TGSState struct {
 
 ## 核心处理函数
 
-| 函数签名（Go） | Comment |
-|---|---|
-| `func ParseTGSReqPayload(raw []byte) (TGSReqPayload, int32)` | 按第九章“消息 3”解析 `ID_V/Ticket_Len/Ticket_TGS/Auth_Len/Authenticator_c`。 |
-| `func DecodeTicketTGS(ticketCipher []byte, ktgs [8]byte) (TicketTGSPlain, int32)` | 解密并解析 `Ticket_TGS` 明文结构。 |
-| `func DecodeAuthenticatorCTGS(authCipher []byte, keyCTGS [8]byte) (AuthenticatorCTGSPlain, int32)` | 解密并解析 `Authenticator_c` 明文（消息 3 内层）。 |
-| `func BuildTicketVPlain(idClient string, adC uint32, idV string, keyCV [8]byte, ts4 uint32, lifetime uint32) ([]byte, int32)` | 组装 `Ticket_V` 明文结构（第九章消息 4 第三层）。 |
-| `func BuildTGSRepPlain(keyCV [8]byte, idV string, ts4 uint32, lifetime uint32, ticketV []byte) ([]byte, int32)` | 组装 `TGS_REP` 内层明文（消息 4 第二层）。 |
-| `func HandleTGSReq(h KerHeader, payload []byte, peerADc uint32, st *TGSState) (respMsgType uint8, respPayload []byte, code int32)` | 处理 `TGS_REQ`，输出 `TGS_REP` 或 `0xff` 错误。 |
+
+| 函数签名（Go）                                                                                                                     | Comment                                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `func ParseTGSReqPayload(raw []byte) (TGSReqPayload, int32)`                                                                       | 按第九章“消息 3”解析`ID_V/Ticket_Len/Ticket_TGS/Auth_Len/Authenticator_c`。 |
+| `func DecodeTicketTGS(ticketCipher []byte, ktgs [8]byte) (TicketTGSPlain, int32)`                                                  | 解密并解析`Ticket_TGS` 明文结构。                                             |
+| `func DecodeAuthenticatorCTGS(authCipher []byte, keyCTGS [8]byte) (AuthenticatorCTGSPlain, int32)`                                 | 解密并解析`Authenticator_c` 明文（消息 3 内层）。                             |
+| `func BuildTicketVPlain(idClient string, adC uint32, idV string, keyCV [8]byte, ts4 uint32, lifetime uint32) ([]byte, int32)`      | 组装`Ticket_V` 明文结构（第九章消息 4 第三层）。                              |
+| `func BuildTGSRepPlain(keyCV [8]byte, idV string, ts4 uint32, lifetime uint32, ticketV []byte) ([]byte, int32)`                    | 组装`TGS_REP` 内层明文（消息 4 第二层）。                                     |
+| `func HandleTGSReq(h KerHeader, payload []byte, peerADc uint32, st *TGSState) (respMsgType uint8, respPayload []byte, code int32)` | 处理`TGS_REQ`，输出 `TGS_REP` 或 `0xff` 错误。                                |
 
 ## 4.3　WebUI API 接口
 
 TGS 的 WEBUI 同样单独暴露在 9881 端口
 
-| 路径 | 方法 | 说明 | 返回关键字段 |
-|------|------|------|-------------|
-| `GET /api/status` | GET | TGS 节点状态 | `{node_id, uptime_s, total_ticket_v_issued, total_auth_fail}` |
-| `GET /api/tgs_log?limit=100` | GET | TGS 请求日志 | `{logs: [{ts, client_id, id_v, result, k_cv_sha256}]}` |
-| `GET /api/services` | GET | 已知 V 服务器列表 | `{services: [{id_v, addr}]}` |
+
+| 路径                         | 方法 | 说明              | 返回关键字段                                                  |
+| ---------------------------- | ---- | ----------------- | ------------------------------------------------------------- |
+| `GET /api/status`            | GET  | TGS 节点状态      | `{node_id, uptime_s, total_ticket_v_issued, total_auth_fail}` |
+| `GET /api/tgs_log?limit=100` | GET  | TGS 请求日志      | `{logs: [{ts, client_id, id_v, result, k_cv_sha256}]}`        |
+| `GET /api/services`          | GET  | 已知 V 服务器列表 | `{services: [{id_v, addr}]}`                                  |
 
 ---
 
@@ -870,6 +883,7 @@ TGS 的 WEBUI 同样单独暴露在 9881 端口
 V 是最终向用户提供业务服务的节点，同时也是安全防线的最后一道关卡。V 的设计体现 "零信任"（Zero Trust）理念：不因为一个 Client 已经通过了 AP 认证就完全信任其后续的每条消息，而是对每一个业务报文都进行数字签名
 
 这种 "一次授权，动态验签" 的设计意味着：
+
 - 即使攻击者截获了 AP 认证完成后的 Session Key，也无法伪造新的 CLI 指令（因为没有 Client 的 RSA 私钥）
 - 即使 Client 的 Session Key 泄露，Client 也无法否认自己签名过的指令（RSA 私钥保证不可否认性）
 
@@ -973,15 +987,16 @@ type VState struct {
 
 ## 核心处理函数
 
-| 函数签名（Go） | Comment |
-|---|---|
-| `func ParseAPReqPayload(raw []byte) (APReqPayload, int32)` | 按第九章“消息 5”解析 `Ticket_V_Len/Ticket_V/Auth_Len/Authenticator_c`。 |
-| `func DecodeTicketV(ticketCipher []byte, kv [8]byte) (TicketVPlain, int32)` | 解密并解析 `Ticket_V` 明文。 |
-| `func DecodeAuthenticatorCV(authCipher []byte, keyCV [8]byte) (AuthenticatorCVPlain, int32)` | 解密并解析 AP 阶段 `Authenticator_c` 明文。 |
-| `func BuildAPRepPayload(ts5 uint32, keyCV [8]byte) ([]byte, int32)` | 构造 `AP_REP`（`Cipher_Len + DES(Key_c_v, TS5+1)`）。 |
-| `func ParseAPPReqPayload(raw []byte) (APPReqPayload, int32)` | 按第九章“APP_REQ 外层”解析 `ID_Client/Cipher_Len/Cipher_Data/RSA_Sign_c`。 |
-| `func DecryptAPPReqPlain(cipher []byte, keyCV [8]byte) (APPReqPlain, int32)` | 解密 `Cipher_Data` 后解析 `PTY_Op/PTY_Session_ID/Payload_Len/Payload`。 |
-| `func BuildAPPRepPayload(ptyEvent uint8, ptySessionID uint32, exitCode int32, payload []byte, keyCV [8]byte, signV func([]byte) [256]byte) ([]byte, int32)` | 构造并签名 `APP_REP` 外层。 |
+
+| 函数签名（Go）                                                                                                                                              | Comment                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `func ParseAPReqPayload(raw []byte) (APReqPayload, int32)`                                                                                                  | 按第九章“消息 5”解析`Ticket_V_Len/Ticket_V/Auth_Len/Authenticator_c`。    |
+| `func DecodeTicketV(ticketCipher []byte, kv [8]byte) (TicketVPlain, int32)`                                                                                 | 解密并解析`Ticket_V` 明文。                                                 |
+| `func DecodeAuthenticatorCV(authCipher []byte, keyCV [8]byte) (AuthenticatorCVPlain, int32)`                                                                | 解密并解析 AP 阶段`Authenticator_c` 明文。                                  |
+| `func BuildAPRepPayload(ts5 uint32, keyCV [8]byte) ([]byte, int32)`                                                                                         | 构造`AP_REP`（`Cipher_Len + DES(Key_c_v, TS5+1)`）。                        |
+| `func ParseAPPReqPayload(raw []byte) (APPReqPayload, int32)`                                                                                                | 按第九章“APP_REQ 外层”解析`ID_Client/Cipher_Len/Cipher_Data/RSA_Sign_c`。 |
+| `func DecryptAPPReqPlain(cipher []byte, keyCV [8]byte) (APPReqPlain, int32)`                                                                                | 解密`Cipher_Data` 后解析 `PTY_Op/PTY_Session_ID/Payload_Len/Payload`。      |
+| `func BuildAPPRepPayload(ptyEvent uint8, ptySessionID uint32, exitCode int32, payload []byte, keyCV [8]byte, signV func([]byte) [256]byte) ([]byte, int32)` | 构造并签名`APP_REP` 外层。                                                  |
 
 ## 业务时序图展示
 
@@ -1038,14 +1053,15 @@ sequenceDiagram
 
 ## WEBUI API 接口
 
-| 路径                          | 方法 | 说明                   | 返回关键字段                                                 |
-| ----------------------------- | ---- | ---------------------- | ------------------------------------------------------------ |
-| `GET /api/status`             | GET  | V 节点状态             | `{node_id, uptime_s, active_sessions, total_pty_frames, total_rejected_frames}` |
-| `GET /api/auth_log?limit=100` | GET  | AP 认证日志            | `{logs: [{ts, client_id, client_ip, result, rsa_verify_result}]}` |
-| `GET /api/pty_log?limit=100`  | GET  | PTY 帧执行日志         | `{logs: [{ts, client_id, pty_session_id, frame_type, frame_size, rsa_ok, result}]}` |
+
+| 路径                          | 方法 | 说明                   | 返回关键字段                                                                             |
+| ----------------------------- | ---- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| `GET /api/status`             | GET  | V 节点状态             | `{node_id, uptime_s, active_sessions, total_pty_frames, total_rejected_frames}`          |
+| `GET /api/auth_log?limit=100` | GET  | AP 认证日志            | `{logs: [{ts, client_id, client_ip, result, rsa_verify_result}]}`                        |
+| `GET /api/pty_log?limit=100`  | GET  | PTY 帧执行日志         | `{logs: [{ts, client_id, pty_session_id, frame_type, frame_size, rsa_ok, result}]}`      |
 | `GET /api/sessions`           | GET  | 活跃 Session 列表      | `{sessions: [{client_id, client_ip, k_cv_sha256, expire_at, last_io_ts, total_frames}]}` |
-| `GET /api/cert/:id`           | GET  | 客户端证书             | `{id, public_key:{n,e}, expire, sign}`                       |
-| `POST /api/verify_cert`       | POST | 手动验证证书（调试用） | `{id, result:"ok"/"fail", reason}`                           |
+| `GET /api/cert/:id`           | GET  | 客户端证书             | `{id, public_key:{n,e}, expire, sign}`                                                   |
+| `POST /api/verify_cert`       | POST | 手动验证证书（调试用） | `{id, result:"ok"/"fail", reason}`                                                       |
 
 ---
 
@@ -1096,7 +1112,7 @@ sequenceDiagram
 
     Web->>C: POST /api/login {username}
     Note right of Web: 用户点击登录，触发 Kerberos 核心全链路
-    
+  
     rect rgb(240, 248, 255)
     Note right of C: 阶段 1：AS 交互 (获取 TGT)
     C->>AS: client_do_as() [发送 AS_REQ]
@@ -1142,13 +1158,13 @@ sequenceDiagram
     Note over Web, C: 业务轮询与安全审计
     Web->>C: GET /api/state
     C-->>Web: {state, keys_sha256, expires, seq_num}
-    
+  
     Web->>C: GET /api/cert
     C-->>Web: 本地 Client 证书 (cert_client.json)
-    
+  
     C->>Web: SSE /api/logs 底层报文追踪日志 (含 cipher_hex, verify_result)
     end
-    
+  
     rect rgb(255, 240, 240)
     Note over C, V: 会话降级与自愈逻辑 (后台静默处理)
     alt Ticket_V 过期
@@ -1160,8 +1176,6 @@ sequenceDiagram
     end
     end
 ```
-
-
 
 ## 内部数据结构
 
@@ -1297,21 +1311,22 @@ class ClientRuntime:
 
 ## 核心流程函数
 
-| 函数签名（Python） | Comment |
-|---|---|
-| `def pack_as_req(id_client: str, id_tgs: str, ts1: int) -> bytes:` | 按第九章消息 1 编码 `AS_REQ` Payload。 |
-| `def unpack_as_rep(payload: bytes, kc: bytes) -> ASRepPlain:` | 按第九章消息 2 解包并解密 `AS_REP`。 |
-| `def pack_tgs_req(id_v: str, ticket_tgs: bytes, key_c_tgs: bytes, id_client: str, ad_c: int, ts3: int) -> bytes:` | 按第九章消息 3 编码 `TGS_REQ`（含加密 `Authenticator_c`）。 |
-| `def unpack_tgs_rep(payload: bytes, key_c_tgs: bytes) -> TGSRepPlain:` | 按第九章消息 4 解包并解密 `TGS_REP`。 |
-| `def pack_ap_req(ticket_v: bytes, key_c_v: bytes, id_client: str, ad_c: int, ts5: int) -> bytes:` | 按第九章消息 5 编码 `AP_REQ`。 |
-| `def verify_ap_rep(payload: bytes, key_c_v: bytes, ts5: int) -> int:` | 按第九章消息 6 验证 `TS5+1`。 |
-| `def pack_app_req(id_client: str, seq_num: int, key_c_v: bytes, pty_op: int, pty_session_id: int, payload: bytes, sign_fn) -> bytes:` | 按第九章 `APP_REQ` 结构编码并追加 `RSA_Sign_c`。 |
-| `def unpack_app_rep(payload: bytes, key_c_v: bytes, verify_fn) -> APPRepPlain:` | 按第九章 `APP_REP` 解包、验签、解密。 |
-| `def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: str) -> int:` | AS 阶段编排函数（消息 1/2）。 |
-| `def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:` | TGS 阶段编排函数（消息 3/4）。 |
-| `def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:` | AP 阶段编排函数（消息 5/6）。 |
-| `def client_app_send_frame(rt: ClientRuntime, cfg: ClientConfig, pty_op: int, pty_session_id: int, payload: bytes) -> int:` | 业务帧发送函数（`msg_type=0x07`）。 |
-| `def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig) -> APPRepPlain:` | 业务帧接收函数（`msg_type=0x07`）。 |
+
+| 函数签名（Python）                                                                                                                    | Comment                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `def pack_as_req(id_client: str, id_tgs: str, ts1: int) -> bytes:`                                                                    | 按第九章消息 1 编码`AS_REQ` Payload。                      |
+| `def unpack_as_rep(payload: bytes, kc: bytes) -> ASRepPlain:`                                                                         | 按第九章消息 2 解包并解密`AS_REP`。                        |
+| `def pack_tgs_req(id_v: str, ticket_tgs: bytes, key_c_tgs: bytes, id_client: str, ad_c: int, ts3: int) -> bytes:`                     | 按第九章消息 3 编码`TGS_REQ`（含加密 `Authenticator_c`）。 |
+| `def unpack_tgs_rep(payload: bytes, key_c_tgs: bytes) -> TGSRepPlain:`                                                                | 按第九章消息 4 解包并解密`TGS_REP`。                       |
+| `def pack_ap_req(ticket_v: bytes, key_c_v: bytes, id_client: str, ad_c: int, ts5: int) -> bytes:`                                     | 按第九章消息 5 编码`AP_REQ`。                              |
+| `def verify_ap_rep(payload: bytes, key_c_v: bytes, ts5: int) -> int:`                                                                 | 按第九章消息 6 验证`TS5+1`。                               |
+| `def pack_app_req(id_client: str, seq_num: int, key_c_v: bytes, pty_op: int, pty_session_id: int, payload: bytes, sign_fn) -> bytes:` | 按第九章`APP_REQ` 结构编码并追加 `RSA_Sign_c`。            |
+| `def unpack_app_rep(payload: bytes, key_c_v: bytes, verify_fn) -> APPRepPlain:`                                                       | 按第九章`APP_REP` 解包、验签、解密。                       |
+| `def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: str) -> int:`                                        | AS 阶段编排函数（消息 1/2）。                              |
+| `def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:`                                                          | TGS 阶段编排函数（消息 3/4）。                             |
+| `def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:`                                                                      | AP 阶段编排函数（消息 5/6）。                              |
+| `def client_app_send_frame(rt: ClientRuntime, cfg: ClientConfig, pty_op: int, pty_session_id: int, payload: bytes) -> int:`           | 业务帧发送函数（`msg_type=0x07`）。                        |
+| `def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig) -> APPRepPlain:`                                                     | 业务帧接收函数（`msg_type=0x07`）。                        |
 
 ## WebUI API 接口（Client）
 
@@ -1319,13 +1334,14 @@ class ClientRuntime:
 
 client WEB API 监听 9883 端口：
 
-| 路径 | 方法 | 说明 | 请求/返回 |
-|------|------|------|-----------|
-| `POST /api/login` | POST | 触发 AS → TGS → AP 三阶段认证 | 请求：`{username,password}` 返回：`{state, tgt_expire, tv_expire}` |
-| `GET /api/state` | GET | 当前 Client 状态 | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}` |
-| `GET /api/cert` | GET | 本 Client 证书 | `{id,issuer, public_key:{n,e}, expire, sign}` |
-| `SSE /api/logs` | SSE | 通信封包记录(实时回传 WEBUI) | `{logs: [{packet_ascii,decode_packet_ascii}]}` |
-| `WS /ws/pty` | WebSocket | PTY 长连接会话，发送/接收终端帧 | C->S: `{op, session_id, data(base64), cols, rows, signal}`；S->C: `{event, session_id, data(base64), exit_code}` |
+
+| 路径              | 方法      | 说明                            | 请求/返回                                                                                                       |
+| ----------------- | --------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `POST /api/login` | POST      | 触发 AS → TGS → AP 三阶段认证 | 请求：`{username,password}` 返回：`{state, tgt_expire, tv_expire}`                                              |
+| `GET /api/state`  | GET       | 当前 Client 状态                | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}`                                                    |
+| `GET /api/cert`   | GET       | 本 Client 证书                  | `{id,issuer, public_key:{n,e}, expire, sign}`                                                                   |
+| `SSE /api/logs`   | SSE       | 通信封包记录(实时回传 WEBUI)    | `{logs: [{packet_ascii,decode_packet_ascii}]}`                                                                  |
+| `WS /ws/pty`      | WebSocket | PTY 长连接会话，发送/接收终端帧 | C->S:`{op, session_id, data(base64), cols, rows, signal}`；S->C: `{event, session_id, data(base64), exit_code}` |
 
 > 注意，Client 网络核心代理在通过 WEB API 拿到 json 数据解析后再进行网络封包
 >
@@ -1335,26 +1351,25 @@ client WEB API 监听 9883 端口：
 
 ### `/ws/pty` 帧语义（WebUI <-> Client）
 
-| 方向 | 字段 | 语义 |
-|------|------|------|
-| Web -> Client | `op` | `open` / `input` / `resize` / `signal` / `close` |
+
+| 方向          | 字段         | 语义                                                   |
+| ------------- | ------------ | ------------------------------------------------------ |
+| Web -> Client | `op`         | `open` / `input` / `resize` / `signal` / `close`       |
 | Web -> Client | `session_id` | `open` 时可缺省或传 `0`；其余帧必须携带已分配的会话 ID |
-| Web -> Client | `data` | `input` 时为 base64 的原始键盘输入；`open` 时可留空 |
-| Web -> Client | `cols, rows` | `open/resize` 必填，终端窗口尺寸 |
-| Web -> Client | `signal` | `signal` 帧必填：`INT/TERM/KILL` |
-| Client -> Web | `event` | `open_ok` / `output` / `exit` / `error` |
-| Client -> Web | `session_id` | 服务端确认后的会话 ID |
-| Client -> Web | `data` | `output/error` 的 base64 数据 |
-| Client -> Web | `exit_code` | `exit` 事件必填，其他事件不填 |
+| Web -> Client | `data`       | `input` 时为 base64 的原始键盘输入；`open` 时可留空    |
+| Web -> Client | `cols, rows` | `open/resize` 必填，终端窗口尺寸                       |
+| Web -> Client | `signal`     | `signal` 帧必填：`INT/TERM/KILL`                       |
+| Client -> Web | `event`      | `open_ok` / `output` / `exit` / `error`                |
+| Client -> Web | `session_id` | 服务端确认后的会话 ID                                  |
+| Client -> Web | `data`       | `output/error` 的 base64 数据                          |
+| Client -> Web | `exit_code`  | `exit` 事件必填，其他事件不填                          |
 
 ## UI 设计
 
 UI 分多个页面，分别是登录页面，终端页面，日志页面：
 
 - **登录页面**：调用 `/api/login` 接口，启动 Kerberos 的登录认证逻辑
-
 - **终端页面**：基于 `xterm.js`，通过 `WS /ws/pty` 建立长连接，发送输入/缩放/信号帧并实时接收 ANSI 输出帧
-
 - **日志页面：** 通过 SSE 实时展示 Client 收发的网络封包
 
   - **封包展示**：Client 对收发的每一个包，应该将 **完整 Packet 直接转 ASCII 字符串** 后通过 `/api/logs` 发回 client 前端，界面风格参考 `wireshark` 的“包列表 + 详情面板”。
@@ -1364,10 +1379,9 @@ UI 分多个页面，分别是登录页面，终端页面，日志页面：
     - **Decoded Packet：**
       展示解密后的报文布局，基于 struct 的原始二进制流进行 ASCII 编码
       能够体现物理布局，但不进行 JSON / Key-Value 结构化展示
-  
-  
+
   UI 风格参考 wireshark，tcpdump 等抓包软件：
-  
+
   ![d7236276d778a80bd29ecb330102a261](https://cdn.jsdelivr.net/gh/fsj2009yx/picserver@main/20260421113559853.png)
 
 # 第七章　封包与拆包详细设计
@@ -1377,6 +1391,7 @@ UI 分多个页面，分别是登录页面，终端页面，日志页面：
 TCP 是字节流协议，不保证每次 `recv()` 调用能收到完整的应用层消息。例如，一次 `send(2000 bytes)` 可能导致接收方两次 `recv()` 分别收到 1000 字节。这种现象称为 "TCP 粘包"（更准确地说是 "TCP 截包"）
 
 本协议通过 **两步接收** 解决此问题：
+
 1. **第一步**：`krb_recv_full(fd, buf, 20)` — 确保收满 20 字节的固定长度首部
 2. **第二步**：解析首部得到 `total_len`，然后 `krb_recv_full(fd, payload_buf, total_len)` — 确保收满完整 Payload
 
@@ -1521,6 +1536,7 @@ free(payload);
 ```
 
 **字段说明**：
+
 - `id`：主体唯一标识。Client 使用 `CLIENT_1`~`CLIENT_4`，V 服务器使用 `verify_server`
 - `issuer`：签发者字段，CA 机构的标识符，作为证书签名的机构背书
 - `public_key.n`：RSA 模数，2048 位，十六进制字符串（512 个十六进制字符）
@@ -1598,14 +1614,15 @@ print("Certificates generated successfully.")
 
 为以下协议要用到的数据类型定义别名，防止歧义：
 
-| **类型名称**   |                    **描述 (Description)**                    |
-| -------------- | :----------------------------------------------------------: |
-| **uint8/byte** |                 8 位无符号整数 / 字节 (Byte)                 |
-| **uint16**     |            16 位无符号整数，大端序 (用于长度前缀)            |
-| **uint32**     |      32 位无符号整数，大端序 (用于时间戳、长度、序列号)      |
-| **uint64**     |                   64 位无符号整数，大端序                    |
-| **int32**      |              32 位有符号整数，大端序（错误码）               |
-| **Kstring**    | 变长字符串结构：由 `uint16` (长度) 后跟 `N` 字节 UTF-8 字符组成，物理布局:(string_len(uint16)\|\|string_data))（c/c++实现时注意：其中 string_data 不包含终止符'\0'）`Kstring` 类型仅用于 TCP 流中封包解包 |
+
+| **类型名称**   |                                                                                          **描述 (Description)**                                                                                          |
+| -------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
+| **uint8/byte** |                                                                                       8 位无符号整数 / 字节 (Byte)                                                                                       |
+| **uint16**     |                                                                                  16 位无符号整数，大端序 (用于长度前缀)                                                                                  |
+| **uint32**     |                                                                            32 位无符号整数，大端序 (用于时间戳、长度、序列号)                                                                            |
+| **uint64**     |                                                                                         64 位无符号整数，大端序                                                                                         |
+| **int32**      |                                                                                    32 位有符号整数，大端序（错误码）                                                                                    |
+| **Kstring**    | 变长字符串结构：由`uint16` (长度) 后跟 `N` 字节 UTF-8 字符组成，物理布局:(string_len(uint16)\|\|string_data))（c/c++实现时注意：其中 string_data 不包含终止符'\0'）`Kstring` 类型仅用于 TCP 流中封包解包 |
 
 ## 通用协议报文首部（Protocol Header）
 
@@ -1634,16 +1651,17 @@ struct Ker_Header {
 // sizeof(Ker_Header) 必须恰好等于 20 字节，请在编译期用 static_assert 验证
 ```
 
-| `msg_type` 值 | 含义                           |
-| :-----------: | ------------------------------ |
-|    `0x01`     | AS_REQ（Client → AS）          |
-|    `0x02`     | AS_REP（AS → Client）          |
-|    `0x03`     | TGS_REQ（Client → TGS）        |
-|    `0x04`     | TGS_REP（TGS → Client）        |
-|    `0x05`     | AP_REQ（Client → V）           |
-|    `0x06`     | AP_REP（V → Client）           |
-|    `0x07`     | 业务消息（Client → V，认证后） |
-|    `0xff`     | 错误响应（任意节点发出）       |
+
+| `msg_type` 值 | 含义                            |
+| :-----------: | ------------------------------- |
+|    `0x01`    | AS_REQ（Client → AS）          |
+|    `0x02`    | AS_REP（AS → Client）          |
+|    `0x03`    | TGS_REQ（Client → TGS）        |
+|    `0x04`    | TGS_REP（TGS → Client）        |
+|    `0x05`    | AP_REQ（Client → V）           |
+|    `0x06`    | AP_REP（V → Client）           |
+|    `0x07`    | 业务消息（Client → V，认证后） |
+|    `0xff`    | 错误响应（任意节点发出）        |
 
 ## 阶段一：Client ↔ AS（消息 1 和 2）
 
@@ -1656,6 +1674,7 @@ struct Ker_Header {
 > 注意该 Layout 视图包含以后的部分只包括 PayLoad 布局，简省了 Protocol Header(20 字节)
 >
 > 也即是以下部分的起始 Offset（偏移）为 0x20
+
 
 | **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                           |
 | ------------------------------ | ------------------- | ----------------------- | ------------------------------------------------------------ |
@@ -1706,20 +1725,21 @@ AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生�
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-------
+---
 
 #### 第二层：Enc_Part 解密后的明文结构 (inner_plain)
 
 这是客户端用自己的密钥 `Kc` 解密后看到的布局。
 
+
 | **相对偏移**         | **数据类型**  | **字段名**     | **说明 (Comment)**                            |
 | -------------------- | ------------- | -------------- | --------------------------------------------- |
-| +0                  | **uint8 [8]** | **Key_c_tgs**  | AS 分配给 C 和 TGS 的会话密钥 (Session Key)。 |
-| +8                  | **Kstring**   | **ID_TGS**     | 目标 TGS 的身份标识（变长字符串）。           |
-| + (8 + 2 + Len_TGS) | **uint32**    | **TS2**        | Ticket 的签发时间戳。                         |
-| + (12 + 2 + Len_TGS) | **uint32**   | **Lifetime**   | Ticket 的有效期（秒）。                       |
-| + (16 + 2 + Len_TGS) | **uint32**   | **Ticket_Len** | 后续 Ticket_TGS 密文块的字节数。              |
-| + (20 + 2 + Len_TGS) | **uint8 []** | **Ticket_TGS** | 由 $K_{tgs}$ 加密的密文块（客户端视作黑盒）。 |
+| +0                   | **uint8 [8]** | **Key_c_tgs**  | AS 分配给 C 和 TGS 的会话密钥 (Session Key)。 |
+| +8                   | **Kstring**   | **ID_TGS**     | 目标 TGS 的身份标识（变长字符串）。           |
+| + (8 + 2 + Len_TGS)  | **uint32**    | **TS2**        | Ticket 的签发时间戳。                         |
+| + (12 + 2 + Len_TGS) | **uint32**    | **Lifetime**   | Ticket 的有效期（秒）。                       |
+| + (16 + 2 + Len_TGS) | **uint32**    | **Ticket_Len** | 后续 Ticket_TGS 密文块的字节数。              |
+| + (20 + 2 + Len_TGS) | **uint8 []**  | **Ticket_TGS** | 由$K_{tgs}$ 加密的密文块（客户端视作黑盒）。  |
 
 ```plain
  0                   1                   2                   3
@@ -1746,20 +1766,21 @@ AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生�
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-------
+---
 
 #### 第三层：Ticket_TGS 的内部结构 (由 TGS 服务器解析)
 
 如果 TGS 服务器拿到并解密了上面的 `Ticket_TGS`，它看到的布局如下：
 
+
 | **相对偏移**             | **数据类型**  | **字段名**    | **说明 (Comment)**                     |
 | ------------------------ | ------------- | ------------- | -------------------------------------- |
-| +0                      | **uint8 [8]** | **Key_c_tgs** | Session Key，需与外层解出的一致。      |
-| +8                      | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。 |
-| + (8 + 2 + Len_C)       | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。             |
-| + (12 + 2 + Len_C)      | **Kstring**   | **ID_TGS**    | **变长**：校验该票据是否发给本 TGS。   |
-| + (14 + Len_C + Len_TGS) | **uint32**   | **TS2**       | 签发时间戳，用于计算是否过期。         |
-| + (18 + Len_C + Len_TGS) | **uint32**   | **Lifetime**  | 票据生命周期。                         |
+| +0                       | **uint8 [8]** | **Key_c_tgs** | Session Key，需与外层解出的一致。      |
+| +8                       | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。 |
+| + (8 + 2 + Len_C)        | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。             |
+| + (12 + 2 + Len_C)       | **Kstring**   | **ID_TGS**    | **变长**：校验该票据是否发给本 TGS。   |
+| + (14 + Len_C + Len_TGS) | **uint32**    | **TS2**       | 签发时间戳，用于计算是否过期。         |
+| + (18 + Len_C + Len_TGS) | **uint32**    | **Lifetime**  | 票据生命周期。                         |
 
 ```plain
  0                   1                   2                   3
@@ -1793,17 +1814,19 @@ AS 收到后：验证报文合法性 → 查找 ID_Client 对应记录 → 生�
 
 ### 消息 3（TGS_REQ）：Client → TGS
 
+
 | **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                          |
 | ------------------------------ | ------------------- | ----------------------- | ----------------------------------------------------------- |
 | +0                             | **Kstring**         | **ID_V**                | 客户端请求访问的目标业务服务器标识（变长字符串）。          |
-| + (2 + Len_V)                  | **uint32**          | **Ticket_Len**          | 后续 `Ticket_TGS` 密文块的字节长度。                        |
-| + (6 + Len_V)                  | **uint8 []**         | **Ticket_TGS**          | 从 AS 获取的票据，包含 Session Key 等信息，客户端原样透传。 |
-| + (6 + Len_V + Ticket_Len)     | **uint32**          | **Auth_Len**            | 后续 `Authenticator_c` 密文块的字节长度。                   |
-| + (10 + Len_V + Ticket_Len)    | **uint8 []**         | **Authenticator_c**     | 使用 $K_{c,tgs}$ 加密的验证器，证明客户端当前持有该密钥。   |
+| + (2 + Len_V)                  | **uint32**          | **Ticket_Len**          | 后续`Ticket_TGS` 密文块的字节长度。                         |
+| + (6 + Len_V)                  | **uint8 []**        | **Ticket_TGS**          | 从 AS 获取的票据，包含 Session Key 等信息，客户端原样透传。 |
+| + (6 + Len_V + Ticket_Len)     | **uint32**          | **Auth_Len**            | 后续`Authenticator_c` 密文块的字节长度。                    |
+| + (10 + Len_V + Ticket_Len)    | **uint8 []**        | **Authenticator_c**     | 使用$K_{c,tgs}$ 加密的验证器，证明客户端当前持有该密钥。    |
 
 **Authenticator_c 内部明文布局表 (由 K_c_tgs 加密)**
 
 当 TGS 服务器解开 Authenticator 时，看到的物理结构如下：
+
 
 | **相对偏移**  | **数据类型** | **字段名**    | **说明 (Comment)**                                   |
 | ------------- | ------------ | ------------- | ---------------------------------------------------- |
@@ -1860,20 +1883,21 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-------
+---
 
 #### 第二层：Enc_Part 解密后的明文结构 (inner_plain)
 
 客户端解开后，将获得与业务服务器通信的 `Key_c_v`。
 
-| **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                           |
-| ------------------------------ | ------------------- | ----------------------- | ------------------------------------------------------------ |
-| +0                            | **uint8 [8]**       | **Key_c_v**             | 客户端与业务服务器 V 通信的会话密钥 (Session Key)。          |
-| +8                            | **Kstring**         | **ID_V**                | 业务服务器身份标识。包含 2 字节长度前缀 + 变长 UTF-8 字符串。 |
-| + (8 + 2 + Len_V)             | **uint32**          | **TS4**                 | TGS 签发该票据的 Unix 时间戳（大端序）。                     |
-| + (12 + 2 + Len_V)            | **uint32**          | **Lifetime**            | 该票据的有效时长（秒）。                                     |
-| + (16 + 2 + Len_V)            | **uint32**          | **Ticket_V_Len**        | 后续 `Ticket_V` 密文块的字节长度。                           |
-| + (20 + 2 + Len_V)            | **uint8 []**        | **Ticket_V**            | 由 $K_v$ 加密的密文块，客户端将其视为黑盒，后续在 AP_REQ 中透传。 |
+
+| **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                               |
+| ------------------------------ | ------------------- | ----------------------- | ---------------------------------------------------------------- |
+| +0                             | **uint8 [8]**       | **Key_c_v**             | 客户端与业务服务器 V 通信的会话密钥 (Session Key)。              |
+| +8                             | **Kstring**         | **ID_V**                | 业务服务器身份标识。包含 2 字节长度前缀 + 变长 UTF-8 字符串。    |
+| + (8 + 2 + Len_V)              | **uint32**          | **TS4**                 | TGS 签发该票据的 Unix 时间戳（大端序）。                         |
+| + (12 + 2 + Len_V)             | **uint32**          | **Lifetime**            | 该票据的有效时长（秒）。                                         |
+| + (16 + 2 + Len_V)             | **uint32**          | **Ticket_V_Len**        | 后续`Ticket_V` 密文块的字节长度。                                |
+| + (20 + 2 + Len_V)             | **uint8 []**        | **Ticket_V**            | 由$K_v$ 加密的密文块，客户端将其视为黑盒，后续在 AP_REQ 中透传。 |
 
 ```
  0                   1                   2                   3
@@ -1900,20 +1924,21 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-------
+---
 
 #### 第三层：Ticket_V 的内部结构 (由业务服务器 V 解密)
 
 当业务服务器 V 收到此票据并用自己的密钥 `K_v` 解密后，看到的布局（和 Message2 中相同）：
 
+
 | **相对偏移**           | **数据类型**  | **字段名**    | **说明 (Comment)**                                  |
 | ---------------------- | ------------- | ------------- | --------------------------------------------------- |
-| +0                    | **uint8 [8]** | **Key_c_v**   | Session Key。服务器将使用此密钥解密客户端的验证器。 |
-| +8                    | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。              |
-| + (8 + 2 + Len_C)     | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。                          |
-| + (12 + 2 + Len_C)    | **Kstring**   | **ID_V**      | **变长**：校验该票据是否确实是发给本服务器。        |
-| + (14 + Len_C + Len_V) | **uint32**   | **TS4**       | 签发时间戳。                                        |
-| + (18 + Len_C + Len_V) | **uint32**   | **Lifetime**  | 票据生命周期。                                      |
+| +0                     | **uint8 [8]** | **Key_c_v**   | Session Key。服务器将使用此密钥解密客户端的验证器。 |
+| +8                     | **Kstring**   | **ID_Client** | **变长**：持票客户端的真实身份字符串。              |
+| + (8 + 2 + Len_C)      | **uint32**    | **AD_c**      | 客户端网络地址或权限掩码。                          |
+| + (12 + 2 + Len_C)     | **Kstring**   | **ID_V**      | **变长**：校验该票据是否确实是发给本服务器。        |
+| + (14 + Len_C + Len_V) | **uint32**    | **TS4**       | 签发时间戳。                                        |
+| + (18 + Len_C + Len_V) | **uint32**    | **Lifetime**  | 票据生命周期。                                      |
 
 ```
  0                   1                   2                   3
@@ -1947,16 +1972,18 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 
 ### 消息 5（AP_REQ）：Client → V
 
-| **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                           |
-| ------------------------------ | ------------------- | ----------------------- | ------------------------------------------------------------ |
-| +0                             | **uint32**          | **Ticket_V_Len**        | 后续 `Ticket_V` 密文块的字节长度。                           |
-| +4                             | **uint8 []**         | **Ticket_V**            | 从 TGS_REP 获取的服务票据，客户端原样透传。                  |
-| + (4 + Ticket_V_Len)           | **uint32**          | **Auth_Len**            | 后续 `Authenticator_c` 密文块的字节长度。                    |
-| + (8 + Ticket_V_Len)           | **uint8 []**         | **Authenticator_c**     | **动态生成**：使用 $K_{c,v}$ 加密的验证器，包含最新的时间戳 TS5。 |
+
+| **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                                |
+| ------------------------------ | ------------------- | ----------------------- | ----------------------------------------------------------------- |
+| +0                             | **uint32**          | **Ticket_V_Len**        | 后续`Ticket_V` 密文块的字节长度。                                 |
+| +4                             | **uint8 []**        | **Ticket_V**            | 从 TGS_REP 获取的服务票据，客户端原样透传。                       |
+| + (4 + Ticket_V_Len)           | **uint32**          | **Auth_Len**            | 后续`Authenticator_c` 密文块的字节长度。                          |
+| + (8 + Ticket_V_Len)           | **uint8 []**        | **Authenticator_c**     | **动态生成**：使用 $K_{c,v}$ 加密的验证器，包含最新的时间戳 TS5。 |
 
 **Authenticator_c 内部明文布局表 (由 Key_c_v 加密)**
 
 布局无改变，仅更新时间戳：
+
 
 | **相对偏移 (Relative Offset)** | **数据类型 (Type)** | **字段名 (Field Name)** | **说明 (Comment)**                                     |
 | ------------------------------ | ------------------- | ----------------------- | ------------------------------------------------------ |
@@ -1982,7 +2009,7 @@ TGS 收到后：用 K_tgs 解密 TGT → 获得 K_c, tgs → 用 K_c, tgs 解密
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-V 收到后：用 K_v 解密 Ticket_V → 用 K_c, v 解密 Authenticator 
+V 收到后：用 K_v 解密 Ticket_V → 用 K_c, v 解密 Authenticator
 
 ### 消息 6（AP_REP）：V → Client
 
@@ -2022,21 +2049,23 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 ### APP_REQ（C -> V）
 
+
 | **相对偏移**                | **类型**       | **字段名**      | **说明**                                              |
 | --------------------------- | -------------- | --------------- | ----------------------------------------------------- |
 | +0                          | **Kstring**    | **ID_Client**   | **路由标识**：Server 用于检索 `Key_c_v` 和 `Pub_c`。  |
 | + (2 + Len_ID)              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                   |
 | + (4 + Len_ID)              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（含 IV + 业务明文）。 |
-| + (4 + Len_ID + Cipher_Len) | **bytes(256)** | **RSA_Sign_c**  | **外层签名**：Client 私钥对 `Seq_Num || Cipher_Data` 进行签名。       |
+| + (4 + Len_ID + Cipher_Len) | **bytes(256)** | **RSA_Sign_c**  | **外层签名**：Client 私钥对 `Seq_Num                  |
 
 **Cipher_Data 解密后明文结构（PTY 控制帧）**
 
-| **类型**   | **字段名**         | **说明** |
-| ---------- | ------------------ | -------- |
-| **uint8**  | **PTY_Op**         | **操作码**：`0x01=OPEN`，`0x02=INPUT`，`0x03=RESIZE`，`0x04=SIGNAL`，`0x05=CLOSE`。 |
-| **uint32** | **PTY_Session_ID** | PTY 会话 ID。`OPEN` 时由 Client 传 0，V 在 `OPEN_OK` 中分配并回传。 |
-| **uint32** | **Payload_Len**    | 后续 Payload 的字节数。 |
-| **bytes**  | **Payload**        | 按 `PTY_Op` 解释：`OPEN`=终端参数，`INPUT`=原始键盘字节流，`RESIZE`=行列，`SIGNAL`=信号值，`CLOSE`=空。 |
+
+| **类型**   | **字段名**         | **说明**                                                                                               |
+| ---------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
+| **uint8**  | **PTY_Op**         | **操作码**：`0x01=OPEN`，`0x02=INPUT`，`0x03=RESIZE`，`0x04=SIGNAL`，`0x05=CLOSE`。                    |
+| **uint32** | **PTY_Session_ID** | PTY 会话 ID。`OPEN` 时由 Client 传 0，V 在 `OPEN_OK` 中分配并回传。                                    |
+| **uint32** | **Payload_Len**    | 后续 Payload 的字节数。                                                                                |
+| **bytes**  | **Payload**        | 按`PTY_Op` 解释：`OPEN`=终端参数，`INPUT`=原始键盘字节流，`RESIZE`=行列，`SIGNAL`=信号值，`CLOSE`=空。 |
 
 ```
  0                   1                   2                   3
@@ -2072,15 +2101,16 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 **Payload 语义（按 PTY_Op）**
 
-| **PTY_Op** | **Payload 结构** |
-| ---------- | ---------------- |
-| `OPEN`     | `TermLen(uint16) + Term(bytes) + Cols(uint16) + Rows(uint16)` |
-| `INPUT`    | `StdinChunk(bytes)` |
-| `RESIZE`   | `Cols(uint16) + Rows(uint16)` |
-| `SIGNAL`   | `Signal(uint8)`：`1=INT`，`2=TERM`，`3=KILL` |
-| `CLOSE`    | 空 |
 
-------
+| **PTY_Op** | **Payload 结构**                                              |
+| ---------- | ------------------------------------------------------------- |
+| `OPEN`     | `TermLen(uint16) + Term(bytes) + Cols(uint16) + Rows(uint16)` |
+| `INPUT`    | `StdinChunk(bytes)`                                           |
+| `RESIZE`   | `Cols(uint16) + Rows(uint16)`                                 |
+| `SIGNAL`   | `Signal(uint8)`：`1=INT`，`2=TERM`，`3=KILL`                  |
+| `CLOSE`    | 空                                                            |
+
+---
 
 **签名生成（Client 端）**
 
@@ -2089,31 +2119,33 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 1. **业务封装与加密**：
 
    将 `PTY_Op`、`PTY_Session_ID`、`Payload_Len`、`Payload` 拼接并填充，使用 `Key_c_v` 执行 DES-CBC 加密，得到 `Cipher_Data`。
-
 2. **待签名数据**：
 
-   $$M = \text{Seq\_Num} \parallel \text{Cipher\_Data}$$
+   $$
+   M = \text{Seq\_Num} \parallel \text{Cipher\_Data}
+   $$
 
    *(注：加入 Seq_Num 参与哈希，确保即便是相同的指令，其外部签名也会随序号变化，防止密文层面的重放)*。
-
 3. **计算签名**：
 
-   $$\text{Sig\_SK}_c = \text{Sign}_{\text{SK}_c}(\text{SHA256}(M))$$
+   $$
+   \text{Sig\_SK}_c = \text{Sign}_{\text{SK}_c}(\text{SHA256}(M))
+   $$
 
 **签名验证（Server 端）**
 
 1. **初步校验**：
 
    根据 `ID_Client` 检索 Session 信息。如果 `Seq_Num` 校验未通过（如重复包），直接丢弃。
-
 2. **验签（优先于解密）**：
 
    从报文末尾截取 256 字节，结合内存中的 `Seq_Num` 与收到的 `Cipher_Data`：
 
-   $$M' = \text{Seq\_Num} \parallel \text{Cipher\_Data}$$
+   $$
+   M' = \text{Seq\_Num} \parallel \text{Cipher\_Data}
+   $$
 
    验证 $\text{Ver}_{\text{PK}_c}(\text{Sig\_SK}_c)$ 是否等于 $\text{SHA256}(M')$。
-
 3. **解密业务**：
 
    验签成功后，才调用 DES 解密 `Cipher_Data` 并分发 PTY 控制逻辑。
@@ -2122,21 +2154,23 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 ### APP_REP（V-> C）
 
-| **相对偏移**    | **类型**       | **字段名**      | **说明**                                                     |
-| --------------- | -------------- | --------------- | ------------------------------------------------------------ |
-| +0              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                          |
-| +2              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（包含 IV + 密文）。          |
-| +(2+Cipher_Len) | **bytes(256)** | **RSA_Sign_v**  | **外层安全凭证**：V 私钥对 `Seq_Num || Cipher_Data` 的签名，用于解密前防伪校验。 |
+
+| **相对偏移**    | **类型**       | **字段名**      | **说明**                                            |
+| --------------- | -------------- | --------------- | --------------------------------------------------- |
+| +0              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                 |
+| +2              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（包含 IV + 密文）。 |
+| +(2+Cipher_Len) | **bytes(256)** | **RSA_Sign_v**  | **外层安全凭证**：V 私钥对 `Seq_Num                 |
 
 **Cipher_Data 解密后明文结构（PTY 事件帧）**
 
-| **类型**   | **字段名**         | **说明** |
-| ---------- | ------------------ | -------- |
+
+| **类型**   | **字段名**         | **说明**                                                               |
+| ---------- | ------------------ | ---------------------------------------------------------------------- |
 | **uint8**  | **PTY_Event**      | **事件码**：`0x11=OPEN_OK`，`0x12=OUTPUT`，`0x13=EXIT`，`0x14=ERROR`。 |
-| **uint32** | **PTY_Session_ID** | PTY 会话 ID。 |
-| **int32**  | **Exit_Code**      | 退出码，仅在 `PTY_Event=EXIT` 时有效，其他事件填 `-1`。 |
-| **uint32** | **Payload_Len**    | 后续 Payload 字节数。 |
-| **bytes**  | **Payload**        | `OUTPUT` 为 ANSI 字节流，`ERROR` 为错误描述字节串，其余按事件定义。 |
+| **uint32** | **PTY_Session_ID** | PTY 会话 ID。                                                          |
+| **int32**  | **Exit_Code**      | 退出码，仅在`PTY_Event=EXIT` 时有效，其他事件填 `-1`。                 |
+| **uint32** | **Payload_Len**    | 后续 Payload 字节数。                                                  |
+| **bytes**  | **Payload**        | `OUTPUT` 为 ANSI 字节流，`ERROR` 为错误描述字节串，其余按事件定义。    |
 
 ```
  0                   1                   2                   3
@@ -2175,16 +2209,18 @@ Server 在每个 PTY 事件产生时（如 OPEN_OK/OUTPUT/EXIT/ERROR），执行
 1. **业务序列化与加密**：
 
    先将事件字段（`PTY_Event`、`PTY_Session_ID`、`Exit_Code`、`Payload_Len`、`Payload`）拼接，进行 PKCS7 填充，并用 `Key_c_v` 完成 DES-CBC 加密，生成完整的 `Cipher_Data`（包含 8 字节 IV）。
-
 2. **待签名消息载荷 (M)**：
 
    对协议头中的 `Seq_Num` 与刚刚生成的 **密文二进制流** 组合后进行哈希处理。
 
-   $$M = \text{Seq\_Num} \parallel \text{Cipher\_Data}$$
-
+   $$
+   M = \text{Seq\_Num} \parallel \text{Cipher\_Data}
+   $$
 3. **签名计算**：
 
-   $$\text{Sig\_SK}_v = \text{Sign}_{\text{SK}_v}(\text{SHA256}(M))$$
+   $$
+   \text{Sig\_SK}_v = \text{Sign}_{\text{SK}_v}(\text{SHA256}(M))
+   $$
 
    - **$\text{SK}_v$**：Server (V) 的 RSA 私钥。
    - **$\text{Sig\_SK}_v$**：生成的定长 **256 字节** 签名，直接作为数据包的尾部追加到 Socket 缓冲区。
@@ -2198,13 +2234,13 @@ Client 收到 **APP_REP** 后：
    根据头部提取 `Seq_Num` 与 `Cipher_Len`，切割出 `Cipher_Data`，并读取末尾的 256 字节签名块。
 
    计算待验证消息摘要：$M' = \text{Seq\_Num} \parallel \text{Cipher\_Data}$
-
 2. **解密签名（优先验签）**：
 
-   $$H_{\text{dec}} = \text{Ver}_{\text{PK}_v}(\text{Sig\_SK}_v)$$
+   $$
+   H_{\text{dec}} = \text{Ver}_{\text{PK}_v}(\text{Sig\_SK}_v)
+   $$
 
    - **$\text{PK}_v$**：预留的 Server 公钥。
-
 3. **比对哈希与拦截**：
 
    检验 $H_{\text{dec}} \stackrel{?}{=} \text{SHA256}(M')$
