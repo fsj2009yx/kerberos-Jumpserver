@@ -1,0 +1,33 @@
+{
+  "name": "kerberos-web-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron + TypeScript web client skeleton",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build --config renderer/vite.config.ts",
+    "start": "npm run build && electron .",
+    "dev": "vite --config renderer/vite.config.ts",
+    "preview": "vite preview --config renderer/vite.config.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/cors": "^2.8.18",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.10",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.19",
+    "electron": "^34.2.0",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  }
+}
