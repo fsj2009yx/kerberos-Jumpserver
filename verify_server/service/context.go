@@ -21,6 +21,7 @@ type SessionContext struct {
 	ADc          uint32
 	KeyCV        [8]byte
 	ExpireAt     uint32
+	SendSeq      uint32
 	PtySessionID uint32
 	LastIO       time.Time
 	TotalFrames  uint64

@@ -73,20 +73,29 @@ type RSAKeyJSON struct {
 }
 
 type ReplayWindow struct {
-	mu    sync.Mutex
+	mu     sync.Mutex
+	scopes map[string]*replayScope
+	max    int
+}
+
+type replayScope struct {
 	seen  map[uint32]struct{}
 	order []uint32
-	max   int
 }
 
 func NewReplayWindow(max int) *ReplayWindow {
 	if max <= 0 {
 		max = 1024
 	}
-	return &ReplayWindow{seen: make(map[uint32]struct{}, max), order: make([]uint32, 0, max), max: max}
+	return &ReplayWindow{scopes: make(map[string]*replayScope), max: max}
 }
 
 func (r *ReplayWindow) Check(ts, seq uint32) error {
+	return r.CheckScoped("", ts, seq)
+}
+
+// CheckScoped 检查给定的时间戳和序列号是否在重放窗口内，并且在指定的作用域内没有被重复使用过。
+func (r *ReplayWindow) CheckScoped(scope string, ts, seq uint32) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -95,18 +104,28 @@ func (r *ReplayWindow) Check(ts, seq uint32) error {
 	if diff < 0 {
 		diff = -diff
 	}
+	// 如果时间戳与当前时间的差值超过5秒，则认为是重放攻击，返回相应的错误码。
 	if diff > 5 {
 		return errorFromCode(ErrReplayTimestamp)
 	}
-	if _, ok := r.seen[seq]; ok {
+
+	rs, ok := r.scopes[scope]
+	if !ok {
+		rs = &replayScope{
+			seen:  make(map[uint32]struct{}, r.max),
+			order: make([]uint32, 0, r.max),
+		}
+		r.scopes[scope] = rs
+	}
+	if _, ok := rs.seen[seq]; ok {
 		return errorFromCode(ErrReplaySeq)
 	}
-	r.seen[seq] = struct{}{}
-	r.order = append(r.order, seq)
-	if len(r.order) > r.max {
-		old := r.order[0]
-		r.order = r.order[1:]
-		delete(r.seen, old)
+	rs.seen[seq] = struct{}{}
+	rs.order = append(rs.order, seq)
+	if len(rs.order) > r.max {
+		old := rs.order[0]
+		rs.order = rs.order[1:]
+		delete(rs.seen, old)
 	}
 	return nil
 }
