@@ -68,8 +68,24 @@ func (s *Service) Run() error {
 	}
 }
 
+// nextServerSeq 返回一个递增的服务器序列号，用于每个响应包的协议头中的 SeqNum 字段。它使用 atomic 包来保证在并发环境下的安全递增。
 func (s *Service) nextServerSeq() uint32 {
 	return atomic.AddUint32(&s.nextSeq, 1)
+}
+
+// replayScopeForTGS 从 TGS 请求的负载中解析出一个用于重放攻击检测的作用域字符串。
+// 它首先解析 TGS 请求的负载，提取其中的票据，然后从票据中获取客户端 ID，并将其作为作用域的一部分返回。
+// 这个作用域字符串将用于后续的重放攻击检测，以确保同一客户端的请求不会被重复接受。
+func (s *Service) replayScopeForTGS(payload []byte) (string, error) {
+	req, err := krb.ParseTGSReqPayload(payload)
+	if err != nil {
+		return "", err
+	}
+	ticket, err := krb.DecodeTicketTGS(req.TicketTGS, s.state.Ktgs)
+	if err != nil {
+		return "", err
+	}
+	return "client:" + string(ticket.IDClient.Data), nil
 }
 
 func (s *Service) handleConnection(conn net.Conn) {
@@ -90,11 +106,16 @@ func (s *Service) handleConnection(conn net.Conn) {
 		}
 		return
 	}
-	if err := s.replay.Check(h.Timestamp, h.SeqNum); err != nil {
+	if err := krb.CheckHeaderType(h.MsgType, krb.MsgTGSReq); err != nil {
 		_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
 		return
 	}
-	if err := krb.CheckHeaderType(h.MsgType, krb.MsgTGSReq); err != nil {
+	scope, err := s.replayScopeForTGS(payload)
+	if err != nil {
+		_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
+		return
+	}
+	if err := s.replay.CheckScoped(scope, h.Timestamp, h.SeqNum); err != nil {
 		_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
 		return
 	}

@@ -76,6 +76,14 @@ func (s *Service) nextServerSeq() uint32 {
 	return atomic.AddUint32(&s.nextSeq, 1)
 }
 
+func (s *Service) replayScopeForAS(payload []byte) (string, error) {
+	req, err := krb.ParseASReqPayload(payload)
+	if err != nil {
+		return "", err
+	}
+	return "client:" + string(req.IDClient.Data), nil
+}
+
 func (s *Service) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -86,7 +94,9 @@ func (s *Service) handleConnection(conn net.Conn) {
 	}()
 	peerADc := krb.PeerIP(conn)
 	for {
+		//每次循环开始时，设置连接的读取截止时间为当前时间加15秒，以防止连接长时间无响应导致资源泄漏。
 		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+		//从连接中读取一个 Kerberos 协议包，最大长度为 64KB。函数返回协议头、负载数据和可能发生的错误。
 		h, payload, err := krb.ReadPacket(conn, 64*1024)
 		if err != nil {
 			code := krb.CodeFromError(err)
@@ -95,14 +105,24 @@ func (s *Service) handleConnection(conn net.Conn) {
 			}
 			return
 		}
-		if err := s.replay.Check(h.Timestamp, h.SeqNum); err != nil {
-			_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
-			return
-		}
+		//检查协议头中的消息类型是否为 AS 请求，如果不是，则返回一个错误响应并关闭连接。
 		if err := krb.CheckHeaderType(h.MsgType, krb.MsgASReq); err != nil {
 			_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
 			return
 		}
+
+		scope, err := s.replayScopeForAS(payload)
+		if err != nil {
+			_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
+			return
+		}
+		if err := s.replay.CheckScoped(scope, h.Timestamp, h.SeqNum); err != nil {
+			_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
+			return
+		}
+
+		//peerADc 是从连接中提取的客户端 IP 地址，用于后续的处理。
+		//handleASReq 函数根据协议头、负载数据和客户端 IP 地址处理 AS 请求，并返回响应类型、响应负载和可能发生的错误。
 		respType, respPayload, respErr := s.handleASReq(h, payload, peerADc)
 		if respErr != nil {
 			_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(respErr))
@@ -126,6 +146,8 @@ func (s *Service) handleASReq(h krb.ProtocolHeader, payload []byte, peerADc uint
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrClientNotFound), err
 	}
 	secret.ADc = peerADc
+	//keyCTGS是C和TGS之间的会话密钥，AS生成后发送给C，C再转发给TGS
+	//TGS用它来验证AS发来的票据和加密的认证数据，并在TGS-REP中使用它加密返回给C的认证数据。
 	keyCTGS, err := rand8()
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrKeyDerive)
@@ -136,10 +158,13 @@ func (s *Service) handleASReq(h krb.ProtocolHeader, payload []byte, peerADc uint
 	if idTGS == "" {
 		idTGS = s.state.IDTGS
 	}
+
+	// 生成发给TGS的票据，包含C的身份、TGS的身份、keyCTGS、ts2和票据有效期
 	ticketPlain, err := krb.BuildTicketTGSPlain(secret, idTGS, keyCTGS, ts2, s.Config.TicketLifetimeSec)
 	if err != nil {
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
 	}
+
 	ticketCipher, err := cryptoutil.EncryptDESCBC(s.state.Ktgs, ticketPlain)
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrDESPadding)
