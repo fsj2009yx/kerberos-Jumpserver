@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2021",
     "module": "CommonJS",
-    "moduleResolution": "Node",
+    "moduleResolution": "node",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -14,8 +14,7 @@
   "include": [
     "main.ts",
     "preload.ts",
-    "api/**/*.ts",
-    "renderer/**/*.ts"
+    "api/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
