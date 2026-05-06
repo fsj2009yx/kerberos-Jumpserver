@@ -11,10 +11,9 @@ import (
 	"github.com/creack/pty"
 )
 
-func startPTYSession(term string, cols, rows uint16) (*LocalPTYSession, error) {
-	shell := "/bin/sh"
-	if term == "" {
-		term = "xterm-256color"
+func startPTYSession(shell, term string, cols, rows uint16) (*LocalPTYSession, error) {
+	if shell == "" {
+		return nil, fmt.Errorf("pty shell is empty")
 	}
 	cmd := exec.Command(shell)
 	cmd.Env = append(os.Environ(), "TERM="+term)

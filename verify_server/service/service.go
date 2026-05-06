@@ -46,15 +46,18 @@ func NewService(configPath string) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("load config: %v", err))
 	}
-	kv, _ := krb.LoadKey8(cfg.KVPath, "v-kv")
-	var priv *crypto.RSAKey
-	if cfg.PrivKeyPath != "" {
-		priv, _ = krb.LoadRSAPrivateKey(cfg.PrivKeyPath)
+	kv, err := krb.LoadConfiguredKey8(cfg.KVPath, cfg.KVHex, "v k_v")
+	if err != nil {
+		panic(fmt.Sprintf("load k_v: %v", err))
+	}
+	priv, err := krb.LoadRSAPrivateKey(cfg.PrivKeyPath)
+	if err != nil {
+		panic(fmt.Sprintf("load private key: %v", err))
 	}
 	s := &Service{
 		Config:      cfg,
 		state:       &VState{SeqNum: 1, IDV: cfg.NodeID, Kv: kv, Sessions: make(map[string]*SessionContext)},
-		replay:      krb.NewReplayWindow(1024),
+		replay:      krb.NewReplayWindow(cfg.AntiReplayWindow),
 		startTime:   time.Now(),
 		privKey:     priv,
 		clientCerts: make(map[string]*krb.Certificate),
@@ -141,8 +144,8 @@ func (s *Service) handleConnection(conn net.Conn) {
 	var authed bool
 	var current *SessionContext
 	for {
-		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		h, payload, err := krb.ReadPacket(conn, 64*1024)
+		_ = conn.SetReadDeadline(time.Now().Add(time.Duration(s.Config.ReadTimeoutSec) * time.Second))
+		h, payload, err := krb.ReadPacket(conn, s.Config.MaxPayloadBytes)
 		if err != nil {
 			code := krb.CodeFromError(err)
 			if code != krb.ErrSocketRecv {
@@ -291,10 +294,13 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		if err != nil {
 			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("bad open payload")), err
 		}
+		if term == "" {
+			term = s.Config.PTYDefaultTerm
+		}
 		if current.PTY != nil {
 			_ = current.PTY.Close()
 		}
-		ptySession, startErr := startPTYSession(term, cols, rows)
+		ptySession, startErr := startPTYSession(s.Config.PTYShell, term, cols, rows)
 		if startErr != nil || ptySession == nil {
 			if startErr == nil {
 				startErr = krb.ErrorFromCode(krb.ErrSessionNotFound)

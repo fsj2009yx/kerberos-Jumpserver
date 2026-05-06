@@ -29,14 +29,20 @@ func NewService(configPath string) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("load config: %v", err))
 	}
-	ktgs, _ := krb.LoadKey8(cfg.KtgsPath, "as-ktgs")
+	ktgs, err := krb.LoadConfiguredKey8(cfg.KtgsPath, cfg.KtgsHex, "as k_tgs")
+	if err != nil {
+		panic(fmt.Sprintf("load k_tgs: %v", err))
+	}
 	st := &krb.ASState{
 		Clients: make(map[string]krb.ASClientSecret, len(cfg.ClientDB)),
 		Ktgs:    ktgs,
 		IDTGS:   "TGS",
 	}
 	for _, c := range cfg.ClientDB {
-		kc, _ := krb.LoadKey8(c.KcPath, "kc:"+c.ID)
+		kc, err := krb.LoadConfiguredKey8(c.KcPath, c.KcHex, "client "+c.ID+" kc")
+		if err != nil {
+			panic(fmt.Sprintf("load client key %s: %v", c.ID, err))
+		}
 		st.Clients[c.ID] = krb.ASClientSecret{
 			IDClient: c.ID,
 			Kc:       kc,
@@ -94,10 +100,10 @@ func (s *Service) handleConnection(conn net.Conn) {
 	}()
 	peerADc := krb.PeerIP(conn)
 	for {
-		//每次循环开始时，设置连接的读取截止时间为当前时间加15秒，以防止连接长时间无响应导致资源泄漏。
-		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-		//从连接中读取一个 Kerberos 协议包，最大长度为 64KB。函数返回协议头、负载数据和可能发生的错误。
-		h, payload, err := krb.ReadPacket(conn, 64*1024)
+		// 每次循环开始时按配置设置读取截止时间，避免连接长时间无响应导致资源泄漏。
+		_ = conn.SetReadDeadline(time.Now().Add(time.Duration(s.Config.ReadTimeoutSec) * time.Second))
+		// 按配置的最大载荷限制读取一个 Kerberos 协议包。
+		h, payload, err := krb.ReadPacket(conn, s.Config.MaxPayloadBytes)
 		if err != nil {
 			code := krb.CodeFromError(err)
 			if code != krb.ErrSocketRecv {
