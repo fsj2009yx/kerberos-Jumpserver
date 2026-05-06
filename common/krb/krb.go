@@ -698,6 +698,37 @@ func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
 	return out, nil
 }
 
+// LoadConfiguredKey8 loads an 8-byte DES key from explicit configuration.
+// inline takes precedence over path and may be hex, base64, or {"key":"..."}.
+func LoadConfiguredKey8(path string, inline string, label string) ([8]byte, error) {
+	var out [8]byte
+	if strings.TrimSpace(inline) != "" {
+		key, ok := parseKeyBytes([]byte(inline))
+		if !ok {
+			return out, fmt.Errorf("%s key inline value is invalid", label)
+		}
+		copy(out[:], key)
+		return out, nil
+	}
+	if strings.TrimSpace(path) == "" {
+		return out, fmt.Errorf("%s key path or inline key is required", label)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out, fmt.Errorf("read %s key %q: %w", label, path, err)
+	}
+	if len(b) == 8 {
+		copy(out[:], b)
+		return out, nil
+	}
+	key, ok := parseKeyBytes(b)
+	if !ok {
+		return out, fmt.Errorf("%s key %q is not 8-byte raw, hex, base64, or key JSON", label, path)
+	}
+	copy(out[:], key)
+	return out, nil
+}
+
 // parseKeyBytes 尝试从原始字节数据中解析出一个8字节的密钥，
 // 支持直接的8字节数据、十六进制字符串和Base64字符串三种格式。返回解析出的密钥和一个布尔值表示是否成功解析。
 func parseKeyBytes(raw []byte) ([]byte, bool) {

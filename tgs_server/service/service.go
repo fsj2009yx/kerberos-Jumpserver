@@ -29,20 +29,26 @@ func NewService(configPath string) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("load config: %v", err))
 	}
-	ktgs, _ := krb.LoadKey8(cfg.KTGSPath, "tgs-ktgs")
+	ktgs, err := krb.LoadConfiguredKey8(cfg.KTGSPath, cfg.KTGSHex, "tgs k_tgs")
+	if err != nil {
+		panic(fmt.Sprintf("load k_tgs: %v", err))
+	}
 	st := &krb.TGSState{
 		Ktgs:     ktgs,
 		IDTGS:    "TGS",
 		Services: make(map[string]krb.ServiceSecret, len(cfg.ServiceDB)),
 	}
 	for _, s := range cfg.ServiceDB {
-		kv, _ := krb.LoadKey8(s.KVPath, "kv:"+s.IDV)
+		kv, err := krb.LoadConfiguredKey8(s.KVPath, s.KVHex, "service "+s.IDV+" k_v")
+		if err != nil {
+			panic(fmt.Sprintf("load service key %s: %v", s.IDV, err))
+		}
 		st.Services[s.IDV] = krb.ServiceSecret{IDV: s.IDV, Kv: kv}
 	}
 	return &Service{
 		Config:    cfg,
 		state:     st,
-		replay:    krb.NewReplayWindow(1024),
+		replay:    krb.NewReplayWindow(cfg.AntiReplayWindow),
 		startTime: time.Now(),
 	}
 }
@@ -97,8 +103,8 @@ func (s *Service) handleConnection(conn net.Conn) {
 		_ = conn.Close()
 	}()
 	peerADc := krb.PeerIP(conn)
-	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-	h, payload, err := krb.ReadPacket(conn, 64*1024)
+	_ = conn.SetReadDeadline(time.Now().Add(time.Duration(s.Config.ReadTimeoutSec) * time.Second))
+	h, payload, err := krb.ReadPacket(conn, s.Config.MaxPayloadBytes)
 	if err != nil {
 		code := krb.CodeFromError(err)
 		if code != krb.ErrSocketRecv {
