@@ -1,40 +1,44 @@
 import { useMemo, useState } from "react";
 import Login from "./component/login";
 import Logs from "./component/logs";
+import Terminal from "./component/terminal";
 import { getState, login } from "./utils/api_calls";
 
 type ViewKey = "login" | "terminal" | "logs";
 
 type ViewState = {
   title: string;
-  body: string;
+  body?: string;
 };
 
 const viewContent: Record<ViewKey, ViewState> = {
   login: {
     title: "Login",
-    body: "Welcome. This is the login view."
+    body: "Welcome. This is the login view.",
   },
   terminal: {
     title: "Terminal",
-    body: "Terminal to get to Linux."
   },
   logs: {
     title: "Logs",
-    body: "See the logs and the data."
-  }
+    body: "See the logs and the data.",
+  },
 };
 
 const App = (): JSX.Element => {
   const [activeView, setActiveView] = useState<ViewKey>("login");
   const [message, setMessage] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] =  useState(true); // useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(true); // useState(false);
 
   const content = useMemo(() => viewContent[activeView], [activeView]);
   const loginLabel = isAuthenticated ? "Logout" : "Login";
+  const showTerminal = activeView === "terminal";
 
-  const handleLogin = async (username: string, password: string): Promise<void> => {
+  const handleLogin = async (
+    username: string,
+    password: string,
+  ): Promise<void> => {
     setLoginError(null);
 
     try {
@@ -53,7 +57,7 @@ const App = (): JSX.Element => {
     try {
       const data = await getState();
       setMessage(
-        `State: ${data.state} | Seq: ${data.seq_num} | TGT: ${data.tgt_expire} | TV: ${data.tv_expire}`
+        `State: ${data.state} | Seq: ${data.seq_num} | TGT: ${data.tgt_expire} | TV: ${data.tv_expire}`,
       );
     } catch (error) {
       const text = error instanceof Error ? error.message : "Unknown error";
@@ -104,7 +108,9 @@ const App = (): JSX.Element => {
               <button id="healthBtn" type="button" onClick={handleStateCheck}>
                 Check API State
               </button>
-              {message ? <span className="health-status">{message}</span> : null}
+              {message ? (
+                <span className="health-status">{message}</span>
+              ) : null}
             </div>
           ) : null}
         </header>
@@ -114,7 +120,11 @@ const App = (): JSX.Element => {
             isAuthenticated ? (
               <div className="logout-panel">
                 <p className="logout-text">Press here to log out.</p>
-                <button className="logout-button" type="button" onClick={handleLogout}>
+                <button
+                  className="logout-button"
+                  type="button"
+                  onClick={handleLogout}
+                >
                   Log out
                 </button>
               </div>
@@ -124,10 +134,15 @@ const App = (): JSX.Element => {
           ) : activeView === "logs" ? (
             <Logs />
           ) : (
-            <>
-              <p>{content.body}</p>
-            </>
+            (content.body ?? (
+              <>
+                <p>{content.body}</p>
+              </>
+            ))
           )}
+          <div className={`terminal-panel${showTerminal ? " is-active" : ""}`}>
+            <Terminal isVisible={showTerminal} />
+          </div>
         </section>
       </main>
     </div>
