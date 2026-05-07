@@ -29,10 +29,14 @@ func NewService(configPath string) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("load config: %v", err))
 	}
+
+	//加载 TGS 密钥 k_tgs，用于加密发给 TGS 的票据和 AS-REP 中的认证数据
 	ktgs, err := krb.LoadConfiguredKey8(cfg.KtgsPath, cfg.KtgsHex, "as k_tgs")
 	if err != nil {
 		panic(fmt.Sprintf("load k_tgs: %v", err))
 	}
+	// 初始化 AS 服务器的状态，包括客户端信息、TGS 密钥和 TGS ID。
+	//客户端信息从配置文件中加载，并存储在一个映射中，键是客户端 ID，值是包含客户端 ID、与 TGS 共享的密钥和客户端地址的结构体。
 	st := &krb.ASState{
 		Clients: make(map[string]krb.ASClientSecret, len(cfg.ClientDB)),
 		Ktgs:    ktgs,
