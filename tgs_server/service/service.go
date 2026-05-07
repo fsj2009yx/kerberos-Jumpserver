@@ -29,6 +29,7 @@ func NewService(configPath string) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("load config: %v", err))
 	}
+	//加载 TGS 密钥 k_tgs，解密AS发来的Ticket
 	ktgs, err := krb.LoadConfiguredKey8(cfg.KTGSPath, cfg.KTGSHex, "tgs k_tgs")
 	if err != nil {
 		panic(fmt.Sprintf("load k_tgs: %v", err))
@@ -39,6 +40,7 @@ func NewService(configPath string) *Service {
 		Services: make(map[string]krb.ServiceSecret, len(cfg.ServiceDB)),
 	}
 	for _, s := range cfg.ServiceDB {
+		//加载服务密钥 k_v，用于加密发给客户端的票据和 TGS-REP 中的认证数据
 		kv, err := krb.LoadConfiguredKey8(s.KVPath, s.KVHex, "service "+s.IDV+" k_v")
 		if err != nil {
 			panic(fmt.Sprintf("load service key %s: %v", s.IDV, err))
@@ -146,11 +148,15 @@ func (s *Service) handleTGSReq(h krb.ProtocolHeader, payload []byte, peerADc uin
 		err := krb.ErrorFromCode(krb.ErrTicketInvalid)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketInvalid), err
 	}
+	//检查票据是否过期，过期的票据不能被接受
 	expire := ticket.TS2 + ticket.Lifetime
 	if uint32(time.Now().Unix()) > expire {
 		err := krb.ErrorFromCode(krb.ErrTicketExpired)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketExpired), err
 	}
+
+	//使用AS发来Ticket中的K_c_tgs解密TGS请求中的Authenticator
+	//验证其中的客户端ID和ADc字段是否与票据中的一致，并且ADc字段如果不为0还要与客户端的IP地址匹配
 	auth, err := krb.DecodeAuthenticatorCTGS(req.AuthCipher, ticket.KeyCTGS)
 	if err != nil {
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
@@ -168,6 +174,9 @@ func (s *Service) handleTGSReq(h krb.ProtocolHeader, payload []byte, peerADc uin
 		err := krb.ErrorFromCode(krb.ErrTicketInvalid)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketInvalid), err
 	}
+
+	//为客户端生成一个新的随机密钥 K_c_v，用于客户端与目标服务之间的通信。
+	//这个密钥将被包含在发给客户端的票据中，并且也会在 TGS-REP 的加密部分中发送给客户端。
 	keyCV, err := rand8()
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrKeyDerive)
