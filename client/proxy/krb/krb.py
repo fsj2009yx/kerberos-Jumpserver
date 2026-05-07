@@ -268,8 +268,10 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         return KRB_OK
         
     except Exception as e:
+        fail_print = f"AS phase failed: {str(e)}"
         rt.state = "STATE_ERROR"
-        rt.logs.append(f"AS phase failed: {str(e)}")
+        print(fail_print)
+        rt.logs.append(fail_print)
         return -1
 
 

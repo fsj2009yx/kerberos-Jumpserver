@@ -105,7 +105,6 @@ async def get_logs():
                 yield f"data: {json.dumps({'timestamp': datetime.now().isoformat(), 'message': log_entry})}\n\n"
             
             await asyncio.sleep(0.1)
-    
     return StreamingResponse(log_stream(), media_type="text/event-stream")
 
 
