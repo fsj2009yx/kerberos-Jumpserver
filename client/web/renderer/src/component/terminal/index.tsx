@@ -1,0 +1,223 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css"
+
+type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
+
+const WS_PTY_URL = "ws://127.0.0.1:9883/ws/pty";
+
+type TerminalViewProps = {
+	isVisible?: boolean;
+};
+
+const TerminalView = ({ isVisible = true }: TerminalViewProps): JSX.Element => {
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const terminalRef = useRef<Terminal | null>(null);
+	const fitAddonRef = useRef<FitAddon | null>(null);
+	const sessionIdRef = useRef<string | null>(null);
+	const pendingInputRef = useRef<string[]>([]);
+
+	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
+	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [connectionSeed, setConnectionSeed] = useState(0);
+
+	const statusLabel = useMemo(() => {
+		switch (status) {
+			case "connecting":
+				return "Connecting";
+			case "connected":
+				return "Connected";
+			case "error":
+				return "Error";
+			default:
+				return "Disconnected";
+		}
+	}, [status]);
+
+	useEffect(() => {
+		if (!containerRef.current) {
+			return undefined;
+		}
+
+		const terminal = new Terminal({
+			cursorBlink: true,
+			convertEol: true,
+			fontFamily: "Menlo, Consolas, 'Courier New', monospace",
+			fontSize: 14,
+			theme: {
+				background: "#0b1220",
+				foreground: "#d2e3ff",
+				cursor: "#6ea2ff",
+				selectionBackground: "rgba(110, 162, 255, 0.35)"
+			}
+		});
+
+		const fitAddon = new FitAddon();
+		terminal.loadAddon(fitAddon);
+		terminal.open(containerRef.current);
+		fitAddon.fit();
+		terminal.focus();
+
+		terminalRef.current = terminal;
+		fitAddonRef.current = fitAddon;
+
+		sessionIdRef.current = null;
+		pendingInputRef.current = [];
+
+		setStatus("connecting");
+		setErrorMessage(null);
+
+		const socket = new WebSocket(WS_PTY_URL);
+
+		const sendJson = (payload: Record<string, unknown>): void => {
+			if (socket.readyState === WebSocket.OPEN) {
+				socket.send(JSON.stringify(payload));
+			}
+		};
+
+		const flushPendingInput = (): void => {
+			if (!sessionIdRef.current || pendingInputRef.current.length === 0) {
+				return;
+			}
+
+			const sessionId = sessionIdRef.current;
+			const chunks = pendingInputRef.current.splice(0, pendingInputRef.current.length);
+			chunks.forEach((chunk) => {
+				sendJson({ op: "input", session_id: sessionId, data: chunk });
+			});
+		};
+
+		const dataDisposable = terminal.onData((data) => {
+			if (!sessionIdRef.current) {
+				pendingInputRef.current.push(data);
+				return;
+			}
+
+			sendJson({ op: "input", session_id: sessionIdRef.current, data });
+		});
+
+		const resizeDisposable = terminal.onResize(({ cols, rows }) => {
+			if (!sessionIdRef.current) {
+				return;
+			}
+
+			sendJson({ op: "resize", session_id: sessionIdRef.current, cols, rows });
+		});
+
+		socket.onopen = () => {
+			setStatus("connected");
+			terminal.writeln("Connected. Opening PTY session...");
+			const cols = terminal.cols || 80;
+			const rows = terminal.rows || 24;
+			sendJson({ op: "open", cols, rows, term: "xterm-256color" });
+		};
+
+		socket.onmessage = (event) => {
+			let payload: { event?: string; session_id?: string; data?: string; exit_code?: number; message?: string };
+			try {
+				payload = JSON.parse(event.data as string) as typeof payload;
+			} catch (error) {
+				return;
+			}
+
+			switch (payload.event) {
+				case "open_ok": {
+					sessionIdRef.current = payload.session_id ?? null;
+					terminal.writeln(`Session ready: ${payload.session_id ?? "unknown"}`);
+					flushPendingInput();
+					break;
+				}
+				case "output": {
+					if (!payload.session_id || payload.session_id !== sessionIdRef.current) {
+						return;
+					}
+					terminal.write(payload.data ?? "");
+					break;
+				}
+				case "exit": {
+					terminal.writeln(`\r\nSession closed (code ${payload.exit_code ?? "?"}).`);
+					sessionIdRef.current = null;
+					break;
+				}
+				case "error": {
+					setStatus("error");
+					setErrorMessage(payload.message ?? "Unknown error");
+					terminal.writeln(`\r\nError: ${payload.message ?? "Unknown error"}`);
+					break;
+				}
+				default:
+					break;
+			}
+		};
+
+		socket.onerror = () => {
+			setStatus("error");
+			setErrorMessage("WebSocket error");
+			terminal.writeln("\r\nWebSocket error.");
+		};
+
+		socket.onclose = () => {
+			setStatus("disconnected");
+			terminal.writeln("\r\nConnection closed.");
+			sessionIdRef.current = null;
+		};
+
+		const handleWindowResize = (): void => {
+			fitAddon.fit();
+		};
+
+		window.addEventListener("resize", handleWindowResize);
+
+		return () => {
+			window.removeEventListener("resize", handleWindowResize);
+			dataDisposable.dispose();
+			resizeDisposable.dispose();
+			if (socket.readyState === WebSocket.OPEN && sessionIdRef.current) {
+				sendJson({ op: "close", session_id: sessionIdRef.current });
+			}
+			socket.close();
+			terminal.dispose();
+			fitAddonRef.current = null;
+			terminalRef.current = null;
+		};
+	}, [connectionSeed]);
+
+	useEffect(() => {
+		if (!isVisible) {
+			return undefined;
+		}
+		if (!fitAddonRef.current || !terminalRef.current) {
+			return undefined;
+		}
+
+		const frame = window.requestAnimationFrame(() => {
+			fitAddonRef.current?.fit();
+			terminalRef.current?.focus();
+		});
+
+		return () => window.cancelAnimationFrame(frame);
+	}, [isVisible]);
+
+	return (
+		<div className="terminal-shell">
+			<div className="terminal-toolbar">
+				<div className={`terminal-status status-${status}`}>{statusLabel}</div>
+				<div className="terminal-actions">
+					<button
+						className="terminal-button"
+						type="button"
+						onClick={() => setConnectionSeed((value) => value + 1)}
+						disabled={status === "connecting"}
+					>
+						Reconnect
+					</button>
+				</div>
+			</div>
+			{errorMessage ? <div className="terminal-error">{errorMessage}</div> : null}
+			<div className="terminal-body" ref={containerRef} />
+		</div>
+	);
+};
+
+export default TerminalView;

@@ -23,6 +23,7 @@ export default function Logs() {
 					message: string;
 				};
 				const entry: LogEntry = {
+					// Create a randomized ID
 					id: `${data.timestamp}-${Math.random().toString(36).slice(2)}`,
 					timestamp: data.timestamp,
 					message: data.message,

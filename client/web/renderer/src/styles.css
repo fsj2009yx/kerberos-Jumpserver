@@ -211,6 +211,96 @@ body {
   font-size: 14px;
 }
 
+.terminal-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 360px;
+  height: 62vh;
+}
+
+.terminal-panel {
+  display: none;
+}
+
+.terminal-panel.is-active {
+  display: block;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.terminal-status {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(12, 107, 220, 0.12);
+  color: #2b4975;
+}
+
+.terminal-status.status-connecting {
+  background: rgba(255, 185, 0, 0.18);
+  color: #8a5b00;
+}
+
+.terminal-status.status-connected {
+  background: rgba(39, 163, 102, 0.18);
+  color: #1f6b45;
+}
+
+.terminal-status.status-error {
+  background: rgba(155, 28, 28, 0.18);
+  color: #8a1c1c;
+}
+
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.terminal-button {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.terminal-button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.terminal-error {
+  color: #8a1c1c;
+  background: rgba(155, 28, 28, 0.1);
+  border: 1px solid rgba(155, 28, 28, 0.25);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.terminal-body {
+  flex: 1;
+  min-height: 260px;
+  border-radius: 12px;
+  border: 1px solid #1b2c4a;
+  background: #0b1220;
+  padding: 6px;
+}
+
+.terminal-body .xterm {
+  height: 100%;
+}
+
 @media (max-width: 860px) {
   .layout {
     grid-template-columns: 1fr;
