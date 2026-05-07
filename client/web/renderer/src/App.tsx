@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import Login from "./component/login";
+import Logs from "./component/logs";
+import { getState, login } from "./utils/api_calls";
 
 type ViewKey = "login" | "terminal" | "logs";
 
@@ -27,7 +29,7 @@ const App = (): JSX.Element => {
   const [activeView, setActiveView] = useState<ViewKey>("login");
   const [message, setMessage] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] =  useState(true); // useState(false);
 
   const content = useMemo(() => viewContent[activeView], [activeView]);
   const loginLabel = isAuthenticated ? "Logout" : "Login";
@@ -35,30 +37,24 @@ const App = (): JSX.Element => {
   const handleLogin = async (username: string, password: string): Promise<void> => {
     setLoginError(null);
 
-    if (!window.systemApi) {
-      setLoginError("API bridge unavailable. Launch via Electron.");
-      return;
-    }
-
     try {
-      await window.systemApi.login(username, password);
+      await login(username, password);
+
       setIsAuthenticated(true);
-      setActiveView("terminal");
+      setActiveView("logs");
     } catch (error) {
       const text = error instanceof Error ? error.message : "Login failed.";
       setLoginError(text);
     }
   };
 
-  const handleHealthCheck = async (): Promise<void> => {
+  const handleStateCheck = async (): Promise<void> => {
     setMessage(null);
     try {
-      if (!window.systemApi) {
-        setMessage("API bridge unavailable. Launch via Electron.");
-        return;
-      }
-      const result = await window.systemApi.getHealth();
-      setMessage(`API status: ${result.status} | Timestamp: ${result.timestamp}`);
+      const data = await getState();
+      setMessage(
+        `State: ${data.state} | Seq: ${data.seq_num} | TGT: ${data.tgt_expire} | TV: ${data.tv_expire}`
+      );
     } catch (error) {
       const text = error instanceof Error ? error.message : "Unknown error";
       setMessage(`API call failed: ${text}`);
@@ -105,8 +101,8 @@ const App = (): JSX.Element => {
           <h1>{activeView === "login" ? loginLabel : content.title}</h1>
           {isAuthenticated ? (
             <div className="health-area">
-              <button id="healthBtn" type="button" onClick={handleHealthCheck}>
-                Check API Health
+              <button id="healthBtn" type="button" onClick={handleStateCheck}>
+                Check API State
               </button>
               {message ? <span className="health-status">{message}</span> : null}
             </div>
@@ -125,6 +121,8 @@ const App = (): JSX.Element => {
             ) : (
               <Login error={loginError} onLogin={handleLogin} />
             )
+          ) : activeView === "logs" ? (
+            <Logs />
           ) : (
             <>
               <p>{content.body}</p>

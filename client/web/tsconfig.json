@@ -13,7 +13,6 @@
   },
   "include": [
     "main.ts",
-    "preload.ts",
     "api/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
