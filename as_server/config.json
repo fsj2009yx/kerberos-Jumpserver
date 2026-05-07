@@ -1,0 +1,41 @@
+{
+  "node_id": "AS",
+  "listen_host": "0.0.0.0",
+  "listen_port": 8881,
+  "webui_host": "0.0.0.0",
+  "webui_port": 9881,
+  "thread_pool_size": 8,
+  "anti_replay_window_size": 1024,
+  "ticket_lifetime_sec": 28800,
+  "max_clients": 16,
+  "max_payload_bytes": 65536,
+  "read_timeout_sec": 15,
+  "cert_path": "./certs/as_cert.json",
+  "privkey_path": "./keys/as_priv.json",
+  "log_level": "INFO",
+  "log_file": "./logs/as.log",
+  "security_log_file": "./logs/security.log",
+  "k_tgs_hex": "4b5447534b455921",
+  "client_db": [
+    {
+      "id": "CLIENT_1",
+      "kc_hex": "70617373776f7264",
+      "cert_path": "./certs/client1_cert.json"
+    },
+    {
+      "id": "CLIENT_2",
+      "kc_hex": "70617373776f7264",
+      "cert_path": "./certs/client2_cert.json"
+    },
+    {
+      "id": "CLIENT_3",
+      "kc_hex": "70617373776f7264",
+      "cert_path": "./certs/client3_cert.json"
+    },
+    {
+      "id": "CLIENT_4",
+      "kc_hex": "70617373776f7264",
+      "cert_path": "./certs/client4_cert.json"
+    }
+  ]
+}

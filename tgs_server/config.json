@@ -1,0 +1,24 @@
+{
+  "node_id": "TGS",
+  "listen_host": "0.0.0.0",
+  "listen_port": 8882,
+  "webui_host": "0.0.0.0",
+  "webui_port": 9882,
+  "anti_replay_window_size": 1024,
+  "ticket_lifetime_sec": 28800,
+  "max_payload_bytes": 65536,
+  "read_timeout_sec": 15,
+  "cert_path": "./certs/tgs_cert.json",
+  "privkey_path": "./keys/tgs_priv.json",
+  "log_level": "INFO",
+  "log_file": "./logs/tgs.log",
+  "security_log_file": "./logs/security.log",
+  "k_tgs_hex": "4b5447534b455921",
+  "services": [
+    {
+      "id_v": "verify_server",
+      "k_v_hex": "4b564b4559313233",
+      "addr": "127.0.0.1:8883"
+    }
+  ]
+}

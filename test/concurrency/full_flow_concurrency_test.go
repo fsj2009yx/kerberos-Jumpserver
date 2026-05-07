@@ -121,9 +121,13 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		clientID := fmt.Sprintf("CLIENT_%03d", i+1)
 		clientCertPath := filepath.Join(certsDir, strings.ToLower(clientID)+"_cert.json")
 		writeCertificate(t, clientCertPath, clientID, "TEST_ISSUER", "2035-12-31", clientPriv, clientPub)
+		kc, err := krb.LoadKey8("", "kc:"+clientID)
+		if err != nil {
+			t.Fatalf("derive kc for %s: %v", clientID, err)
+		}
 		clientEntriesAS = append(clientEntriesAS, asconfig.ClientEntry{
 			ID:       clientID,
-			KcPath:   "",
+			KcHex:    hex.EncodeToString(kc[:]),
 			CertPath: clientCertPath,
 		})
 		clientEntriesV = append(clientEntriesV, verifyconfig.ClientCertEntry{
@@ -148,8 +152,12 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		ThreadPoolSize:    8,
 		AntiReplayWindow:  4096,
 		TicketLifetimeSec: 600,
+		MaxClients:        n,
+		MaxPayloadBytes:   64 * 1024,
+		ReadTimeoutSec:    15,
 		CertPath:          "",
 		PrivKeyPath:       "",
+		LogLevel:          "INFO",
 		LogFile:           filepath.Join(logsDir, "as.log"),
 		SecurityLogFile:   filepath.Join(logsDir, "as_security.log"),
 		KtgsPath:          kTGSPath,
@@ -161,9 +169,13 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		ListenPort:        tgsPort,
 		WebUIHost:         "127.0.0.1",
 		WebUIPort:         tgsWebPort,
+		AntiReplayWindow:  4096,
 		TicketLifetimeSec: 600,
+		MaxPayloadBytes:   64 * 1024,
+		ReadTimeoutSec:    15,
 		CertPath:          "",
 		PrivKeyPath:       "",
+		LogLevel:          "INFO",
 		LogFile:           filepath.Join(logsDir, "tgs.log"),
 		SecurityLogFile:   filepath.Join(logsDir, "tgs_security.log"),
 		KTGSPath:          kTGSPath,
@@ -172,17 +184,23 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		},
 	}
 	vCfg := verifyconfig.Config{
-		NodeID:          idV,
-		ListenHost:      "127.0.0.1",
-		ListenPort:      vPort,
-		WebUIHost:       "127.0.0.1",
-		WebUIPort:       vWebPort,
-		CertPath:        vCertPath,
-		PrivKeyPath:     vPrivPath,
-		LogFile:         filepath.Join(logsDir, "v.log"),
-		SecurityLogFile: filepath.Join(logsDir, "v_security.log"),
-		KVPath:          kVPath,
-		ClientDB:        clientEntriesV,
+		NodeID:           idV,
+		ListenHost:       "127.0.0.1",
+		ListenPort:       vPort,
+		WebUIHost:        "127.0.0.1",
+		WebUIPort:        vWebPort,
+		AntiReplayWindow: 4096,
+		MaxPayloadBytes:  64 * 1024,
+		ReadTimeoutSec:   30,
+		CertPath:         vCertPath,
+		PrivKeyPath:      vPrivPath,
+		LogLevel:         "INFO",
+		LogFile:          filepath.Join(logsDir, "v.log"),
+		SecurityLogFile:  filepath.Join(logsDir, "v_security.log"),
+		KVPath:           kVPath,
+		PTYShell:         "/bin/sh",
+		PTYDefaultTerm:   "xterm-256color",
+		ClientDB:         clientEntriesV,
 	}
 
 	asCfgPath := filepath.Join(root, "as_config.json")

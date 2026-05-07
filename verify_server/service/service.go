@@ -46,15 +46,18 @@ func NewService(configPath string) *Service {
 	if err != nil {
 		panic(fmt.Sprintf("load config: %v", err))
 	}
-	kv, _ := krb.LoadKey8(cfg.KVPath, "v-kv")
-	var priv *crypto.RSAKey
-	if cfg.PrivKeyPath != "" {
-		priv, _ = krb.LoadRSAPrivateKey(cfg.PrivKeyPath)
+	kv, err := krb.LoadConfiguredKey8(cfg.KVPath, cfg.KVHex, "v k_v")
+	if err != nil {
+		panic(fmt.Sprintf("load k_v: %v", err))
+	}
+	priv, err := krb.LoadRSAPrivateKey(cfg.PrivKeyPath)
+	if err != nil {
+		panic(fmt.Sprintf("load private key: %v", err))
 	}
 	s := &Service{
 		Config:      cfg,
 		state:       &VState{SeqNum: 1, IDV: cfg.NodeID, Kv: kv, Sessions: make(map[string]*SessionContext)},
-		replay:      krb.NewReplayWindow(1024),
+		replay:      krb.NewReplayWindow(cfg.AntiReplayWindow),
 		startTime:   time.Now(),
 		privKey:     priv,
 		clientCerts: make(map[string]*krb.Certificate),
@@ -101,15 +104,37 @@ func (s *Service) nextSessionID() uint32 {
 	return atomic.AddUint32(&s.nextPtyID, 1)
 }
 
+func nextAppSeq(current *SessionContext) uint32 {
+	if current == nil {
+		return 0
+	}
+	return atomic.AddUint32(&current.SendSeq, 1)
+}
+
+func (s *Service) replayScopeForAPReq(payload []byte) (string, error) {
+	req, err := krb.ParseAPReqPayload(payload)
+	if err != nil {
+		return "", err
+	}
+	ticket, err := krb.DecodeTicketV(req.TicketV, s.state.Kv)
+	if err != nil {
+		return "", err
+	}
+	return "client:" + string(ticket.IDClient.Data), nil
+}
+
 func (s *Service) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var writeMu sync.Mutex
-	sendPacket := func(msgType uint8, payload []byte) error {
+	sendPacketWithSeq := func(msgType uint8, seq uint32, payload []byte) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		return krb.WritePacket(conn, msgType, s.nextServerSeq(), uint32(time.Now().Unix()), payload)
+		return krb.WritePacket(conn, msgType, seq, uint32(time.Now().Unix()), payload)
+	}
+	sendPacket := func(msgType uint8, payload []byte) error {
+		return sendPacketWithSeq(msgType, s.nextServerSeq(), payload)
 	}
 	go func() {
 		<-ctx.Done()
@@ -119,8 +144,8 @@ func (s *Service) handleConnection(conn net.Conn) {
 	var authed bool
 	var current *SessionContext
 	for {
-		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		h, payload, err := krb.ReadPacket(conn, 64*1024)
+		_ = conn.SetReadDeadline(time.Now().Add(time.Duration(s.Config.ReadTimeoutSec) * time.Second))
+		h, payload, err := krb.ReadPacket(conn, s.Config.MaxPayloadBytes)
 		if err != nil {
 			code := krb.CodeFromError(err)
 			if code != krb.ErrSocketRecv {
@@ -128,15 +153,19 @@ func (s *Service) handleConnection(conn net.Conn) {
 			}
 			return
 		}
-		if err := s.replay.Check(h.Timestamp, h.SeqNum); err != nil {
-			_ = s.writeError(conn, s.nextServerSeq(), krb.CodeFromError(err))
-			return
-		}
-
 		switch h.MsgType {
 		case krb.MsgAPReq:
 			if authed {
 				_ = sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrMsgTypeInvalid))
+				return
+			}
+			scope, err := s.replayScopeForAPReq(payload)
+			if err != nil {
+				_ = sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
+				return
+			}
+			if err := s.replay.CheckScoped(scope, h.Timestamp, h.SeqNum); err != nil {
+				_ = sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
 				return
 			}
 			respPayload, sess, err := s.handleAPReq(ctx, h, payload, sendPacket)
@@ -154,16 +183,17 @@ func (s *Service) handleConnection(conn net.Conn) {
 				_ = sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrSessionNotFound))
 				return
 			}
-			respType, respPayload, respErr := s.handleAPPReq(h, payload, current, sendPacket)
-			if respErr != nil {
-				if respType == krb.MsgErr {
-					_ = sendPacket(krb.MsgErr, respPayload)
-				} else {
-					_ = sendPacket(respType, respPayload)
-				}
+			if err := s.replay.CheckScoped("client:"+current.IDClient, h.Timestamp, h.SeqNum); err != nil {
+				_ = sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
 				return
 			}
-			if err := sendPacket(respType, respPayload); err != nil {
+			respSeq := nextAppSeq(current)
+			respType, respPayload, respErr := s.handleAPPReq(h, payload, current, sendPacketWithSeq, respSeq)
+			if respErr != nil {
+				_ = sendPacketWithSeq(respType, respSeq, respPayload)
+				return
+			}
+			if err := sendPacketWithSeq(respType, respSeq, respPayload); err != nil {
 				return
 			}
 			if current != nil && current.Closed {
@@ -226,7 +256,7 @@ func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, pay
 	return resp, sess, nil
 }
 
-func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *SessionContext, sendPacket func(uint8, []byte) error) (uint8, []byte, error) {
+func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *SessionContext, sendPacket func(uint8, uint32, []byte) error, respSeq uint32) (uint8, []byte, error) {
 	req, err := krb.ParseAPPReqPayload(payload)
 	if err != nil {
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
@@ -253,7 +283,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 
 	plain, err := krb.DecryptAPPReqPlain(req.Cipher, current.KeyCV)
 	if err != nil {
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("decrypt failed")), err
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("decrypt failed")), err
 	}
 	atomic.AddUint64(&current.TotalFrames, 1)
 	current.LastIO = time.Now()
@@ -262,17 +292,20 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 	case ptyOpOpen:
 		term, cols, rows, err := parsePtyOpenPayload(plain.Payload)
 		if err != nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("bad open payload")), err
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("bad open payload")), err
+		}
+		if term == "" {
+			term = s.Config.PTYDefaultTerm
 		}
 		if current.PTY != nil {
 			_ = current.PTY.Close()
 		}
-		ptySession, startErr := startPTYSession(term, cols, rows)
+		ptySession, startErr := startPTYSession(s.Config.PTYShell, term, cols, rows)
 		if startErr != nil || ptySession == nil {
 			if startErr == nil {
 				startErr = krb.ErrorFromCode(krb.ErrSessionNotFound)
 			}
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("pty start failed")), startErr
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("pty start failed")), startErr
 		}
 		current.PTY = ptySession
 		current.PtySessionID = s.nextSessionID()
@@ -286,40 +319,40 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		}
 		go s.streamPTYOutput(current, sendPacket)
 		out := []byte(fmt.Sprintf("open ok: %s", current.IDClient))
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventOpenOK, current.PtySessionID, -1, out), nil
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOpenOK, current.PtySessionID, -1, out), nil
 	case ptyOpInput:
 		if current.PTY == nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
 		}
 		if _, err := current.PTY.PTY.Write(plain.Payload); err != nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("pty write failed")), krb.ErrorFromCode(krb.ErrSocketSend)
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("pty write failed")), krb.ErrorFromCode(krb.ErrSocketSend)
 		}
 		out := append([]byte("echo: "), plain.Payload...)
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventOutput, current.PtySessionID, -1, out), nil
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, out), nil
 	case ptyOpResize:
 		if current.PTY == nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
 		}
 		cols, rows, err := parsePtyResizePayload(plain.Payload)
 		if err != nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("bad resize payload")), err
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("bad resize payload")), err
 		}
 		if err := current.PTY.Resize(cols, rows); err != nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("resize failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("resize failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
 		}
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventOutput, current.PtySessionID, -1, []byte("resize ok")), nil
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, []byte("resize ok")), nil
 	case ptyOpSignal:
 		if current.PTY == nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
 		}
 		sig, err := parsePtySignalPayload(plain.Payload)
 		if err != nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("bad signal payload")), err
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("bad signal payload")), err
 		}
 		if err := current.PTY.Signal(sig); err != nil {
-			return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("signal failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
+			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("signal failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
 		}
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventOutput, current.PtySessionID, -1, []byte("signal ok")), nil
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, []byte("signal ok")), nil
 	case ptyOpClose:
 		if current.Cancel != nil {
 			current.Cancel()
@@ -331,13 +364,13 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		delete(s.state.Sessions, current.IDClient)
 		s.state.mu.Unlock()
 		current.Closed = true
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventExit, current.PtySessionID, 0, []byte("bye")), nil
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventExit, current.PtySessionID, 0, []byte("bye")), nil
 	default:
-		return krb.MsgApp, s.buildAPPRep(current, h.SeqNum, ptyEventError, current.PtySessionID, -1, []byte("invalid pty op")), krb.ErrorFromCode(krb.ErrMsgTypeInvalid)
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("invalid pty op")), krb.ErrorFromCode(krb.ErrMsgTypeInvalid)
 	}
 }
 
-func (s *Service) streamPTYOutput(current *SessionContext, sendPacket func(uint8, []byte) error) {
+func (s *Service) streamPTYOutput(current *SessionContext, sendPacket func(uint8, uint32, []byte) error) {
 	if current == nil || current.PTY == nil || current.Ctx == nil {
 		return
 	}
@@ -349,14 +382,16 @@ func (s *Service) streamPTYOutput(current *SessionContext, sendPacket func(uint8
 		}
 		atomic.AddUint64(&current.TotalFrames, 1)
 		current.LastIO = time.Now()
-		rep := s.buildAPPRep(current, s.nextServerSeq(), ptyEventOutput, current.PtySessionID, -1, data)
-		_ = sendPacket(krb.MsgApp, rep)
+		seq := nextAppSeq(current)
+		rep := s.buildAPPRep(current, seq, ptyEventOutput, current.PtySessionID, -1, data)
+		_ = sendPacket(krb.MsgApp, seq, rep)
 	}
 	if current.Closed {
 		return
 	}
-	rep := s.buildAPPRep(current, s.nextServerSeq(), ptyEventExit, current.PtySessionID, 0, nil)
-	_ = sendPacket(krb.MsgApp, rep)
+	seq := nextAppSeq(current)
+	rep := s.buildAPPRep(current, seq, ptyEventExit, current.PtySessionID, 0, nil)
+	_ = sendPacket(krb.MsgApp, seq, rep)
 }
 
 func parsePtyOpenPayload(raw []byte) (string, uint16, uint16, error) {
@@ -387,9 +422,11 @@ func parsePtySignalPayload(raw []byte) (uint8, error) {
 	return raw[0], nil
 }
 
+// 构建APP_REP响应，包含事件类型、pty会话ID、退出码和输出数据等信息，并使用当前会话的KeyCV进行加密和签名
 func (s *Service) buildAPPRep(current *SessionContext, seq uint32, event uint8, ptySessionID uint32, exitCode int32, payload []byte) []byte {
 	signFn := func(cipherData []byte) ([256]byte, error) {
 		raw := make([]byte, 4+len(cipherData))
+		// 签名内容由序列号和密文数据组成，确保每条消息的签名都是唯一的，并且与消息内容紧密绑定
 		copy(raw[:4], krb.Uint32ToBytes(seq))
 		copy(raw[4:], cipherData)
 		return krb.SignSHA256(raw, s.privKey)

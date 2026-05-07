@@ -10,8 +10,11 @@ import (
 	"syscall"
 )
 
-func startPTYSession(term string, cols, rows uint16) (*LocalPTYSession, error) {
-	cmd := exec.Command("cmd.exe")
+func startPTYSession(shell, term string, cols, rows uint16) (*LocalPTYSession, error) {
+	if shell == "" {
+		return nil, fmt.Errorf("pty shell is empty")
+	}
+	cmd := exec.Command(shell)
 	cmd.Env = append(os.Environ(), "TERM="+term)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

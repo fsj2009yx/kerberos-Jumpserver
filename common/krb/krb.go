@@ -19,32 +19,6 @@ import (
 	"time"
 )
 
-// ASClientSecret 是AS服务器中保存的客户端信息结构体，包含了客户端的ID、与TGS共享的密钥以及客户端的ADc（地址）。
-type ASClientSecret struct {
-	IDClient string
-	Kc       [8]byte
-	ADc      uint32
-}
-
-type ASState struct {
-	SeqNum  uint32
-	Clients map[string]ASClientSecret
-	Ktgs    [8]byte
-	IDTGS   string
-}
-
-type ServiceSecret struct {
-	IDV string
-	Kv  [8]byte
-}
-
-type TGSState struct {
-	SeqNum   uint32
-	Ktgs     [8]byte
-	IDTGS    string
-	Services map[string]ServiceSecret
-}
-
 type Certificate struct {
 	ID        string `json:"id"`
 	Issuer    string `json:"issuer"`
@@ -73,20 +47,29 @@ type RSAKeyJSON struct {
 }
 
 type ReplayWindow struct {
-	mu    sync.Mutex
+	mu     sync.Mutex
+	scopes map[string]*replayScope
+	max    int
+}
+
+type replayScope struct {
 	seen  map[uint32]struct{}
 	order []uint32
-	max   int
 }
 
 func NewReplayWindow(max int) *ReplayWindow {
 	if max <= 0 {
 		max = 1024
 	}
-	return &ReplayWindow{seen: make(map[uint32]struct{}, max), order: make([]uint32, 0, max), max: max}
+	return &ReplayWindow{scopes: make(map[string]*replayScope), max: max}
 }
 
 func (r *ReplayWindow) Check(ts, seq uint32) error {
+	return r.CheckScoped("", ts, seq)
+}
+
+// CheckScoped 检查给定的时间戳和序列号是否在重放窗口内，并且在指定的作用域内没有被重复使用过。
+func (r *ReplayWindow) CheckScoped(scope string, ts, seq uint32) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -95,18 +78,28 @@ func (r *ReplayWindow) Check(ts, seq uint32) error {
 	if diff < 0 {
 		diff = -diff
 	}
+	// 如果时间戳与当前时间的差值超过5秒，则认为是重放攻击，返回相应的错误码。
 	if diff > 5 {
 		return errorFromCode(ErrReplayTimestamp)
 	}
-	if _, ok := r.seen[seq]; ok {
+
+	rs, ok := r.scopes[scope]
+	if !ok {
+		rs = &replayScope{
+			seen:  make(map[uint32]struct{}, r.max),
+			order: make([]uint32, 0, r.max),
+		}
+		r.scopes[scope] = rs
+	}
+	if _, ok := rs.seen[seq]; ok {
 		return errorFromCode(ErrReplaySeq)
 	}
-	r.seen[seq] = struct{}{}
-	r.order = append(r.order, seq)
-	if len(r.order) > r.max {
-		old := r.order[0]
-		r.order = r.order[1:]
-		delete(r.seen, old)
+	rs.seen[seq] = struct{}{}
+	rs.order = append(rs.order, seq)
+	if len(rs.order) > r.max {
+		old := rs.order[0]
+		rs.order = rs.order[1:]
+		delete(rs.seen, old)
 	}
 	return nil
 }
@@ -230,428 +223,6 @@ func BuildErrorPayload(code int32) []byte {
 	return buf
 }
 
-// ParseASReqPayload 解析错误消息的负载，返回错误码
-func ParseASReqPayload(raw []byte) (ASReqPayload, error) {
-	c := NewCursor(raw)
-	idClient, err := c.ReadKString()
-	if err != nil {
-		return ASReqPayload{}, err
-	}
-	idTGS, err := c.ReadKString()
-	if err != nil {
-		return ASReqPayload{}, err
-	}
-	ts1, err := c.ReadUint32()
-	if err != nil {
-		return ASReqPayload{}, err
-	}
-	return ASReqPayload{
-		IDClient: idClient,
-		IDTGS:    idTGS,
-		TS1:      ts1,
-	}, nil
-}
-
-func BuildTicketTGSPlain(c ASClientSecret, idTGS string, keyCTGS [8]byte, ts2 uint32, lifetime uint32) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	buf.Write(keyCTGS[:])
-	buf.Write(EncodeKString(c.IDClient))
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, c.ADc)
-	buf.Write(tmp)
-	buf.Write(EncodeKString(idTGS))
-	binary.BigEndian.PutUint32(tmp, ts2)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint32(tmp, lifetime)
-	buf.Write(tmp)
-	return buf.Bytes(), nil
-}
-
-func BuildASRepPlain(keyCTGS [8]byte, idTGS string, ts2 uint32, lifetime uint32, ticketTGS []byte) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	buf.Write(keyCTGS[:])
-	buf.Write(EncodeKString(idTGS))
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, ts2)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint32(tmp, lifetime)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint32(tmp, uint32(len(ticketTGS)))
-	buf.Write(tmp)
-	buf.Write(ticketTGS)
-	return buf.Bytes(), nil
-}
-
-func BuildASRepPayload(encPart []byte) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, uint32(len(encPart)))
-	buf.Write(tmp)
-	buf.Write(encPart)
-	return buf.Bytes(), nil
-}
-
-func ParseASRepPayload(raw []byte) (ASRepPayloadWire, error) {
-	c := NewCursor(raw)
-	cipherLen, err := c.ReadUint32()
-	if err != nil {
-		return ASRepPayloadWire{}, err
-	}
-	encPart, err := c.ReadBytes(int(cipherLen))
-	if err != nil {
-		return ASRepPayloadWire{}, err
-	}
-	return ASRepPayloadWire{
-		CipherLen: cipherLen,
-		EncPart:   encPart,
-	}, nil
-}
-
-func ParseTGSReqPayload(raw []byte) (TGSReqPayload, error) {
-	c := NewCursor(raw)
-	idV, err := c.ReadKString()
-	if err != nil {
-		return TGSReqPayload{}, err
-	}
-	ticketLen, err := c.ReadUint32()
-	if err != nil {
-		return TGSReqPayload{}, err
-	}
-	ticketTGS, err := c.ReadBytes(int(ticketLen))
-	if err != nil {
-		return TGSReqPayload{}, err
-	}
-	authLen, err := c.ReadUint32()
-	if err != nil {
-		return TGSReqPayload{}, err
-	}
-	authCipher, err := c.ReadBytes(int(authLen))
-	if err != nil {
-		return TGSReqPayload{}, err
-	}
-	return TGSReqPayload{
-		IDV:        idV,
-		TicketLen:  ticketLen,
-		TicketTGS:  ticketTGS,
-		AuthLen:    authLen,
-		AuthCipher: authCipher,
-	}, nil
-}
-
-func DecodeTicketTGS(ticketCipher []byte, ktgs [8]byte) (TicketTGSPlain, error) {
-	plain, err := crypto.DecryptDESCBC(ktgs, ticketCipher)
-	if err != nil {
-		return TicketTGSPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	c := NewCursor(plain)
-	keyBytes, err := c.ReadBytes(8)
-	if err != nil {
-		return TicketTGSPlain{}, err
-	}
-	idClient, err := c.ReadKString()
-	if err != nil {
-		return TicketTGSPlain{}, err
-	}
-	adc, err := c.ReadUint32()
-	if err != nil {
-		return TicketTGSPlain{}, err
-	}
-	idTGS, err := c.ReadKString()
-	if err != nil {
-		return TicketTGSPlain{}, err
-	}
-	ts2, err := c.ReadUint32()
-	if err != nil {
-		return TicketTGSPlain{}, err
-	}
-	lifetime, err := c.ReadUint32()
-	if err != nil {
-		return TicketTGSPlain{}, err
-	}
-	var key TicketTGSPlain
-	copy(key.KeyCTGS[:], keyBytes)
-	key.IDClient = idClient
-	key.ADc = adc
-	key.IDTGS = idTGS
-	key.TS2 = ts2
-	key.Lifetime = lifetime
-	return key, nil
-}
-
-func DecodeAuthenticatorCTGS(authCipher []byte, keyCTGS [8]byte) (AuthenticatorCTGSPlain, error) {
-	plain, err := crypto.DecryptDESCBC(keyCTGS, authCipher)
-	if err != nil {
-		return AuthenticatorCTGSPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	c := NewCursor(plain)
-	idClient, err := c.ReadKString()
-	if err != nil {
-		return AuthenticatorCTGSPlain{}, err
-	}
-	adc, err := c.ReadUint32()
-	if err != nil {
-		return AuthenticatorCTGSPlain{}, err
-	}
-	ts3, err := c.ReadUint32()
-	if err != nil {
-		return AuthenticatorCTGSPlain{}, err
-	}
-	return AuthenticatorCTGSPlain{
-		IDClient: idClient,
-		ADc:      adc,
-		TS3:      ts3,
-	}, nil
-}
-
-func BuildTicketVPlain(idClient string, adC uint32, idV string, keyCV [8]byte, ts4 uint32, lifetime uint32) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	buf.Write(keyCV[:])
-	buf.Write(EncodeKString(idClient))
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, adC)
-	buf.Write(tmp)
-	buf.Write(EncodeKString(idV))
-	binary.BigEndian.PutUint32(tmp, ts4)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint32(tmp, lifetime)
-	buf.Write(tmp)
-	return buf.Bytes(), nil
-}
-
-func BuildTGSRepPlain(keyCV [8]byte, idV string, ts4 uint32, lifetime uint32, ticketV []byte) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	buf.Write(keyCV[:])
-	buf.Write(EncodeKString(idV))
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, ts4)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint32(tmp, lifetime)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint32(tmp, uint32(len(ticketV)))
-	buf.Write(tmp)
-	buf.Write(ticketV)
-	return buf.Bytes(), nil
-}
-
-func ParseAPReqPayload(raw []byte) (APReqPayload, error) {
-	c := NewCursor(raw)
-	ticketLen, err := c.ReadUint32()
-	if err != nil {
-		return APReqPayload{}, err
-	}
-	ticket, err := c.ReadBytes(int(ticketLen))
-	if err != nil {
-		return APReqPayload{}, err
-	}
-	authLen, err := c.ReadUint32()
-	if err != nil {
-		return APReqPayload{}, err
-	}
-	authCipher, err := c.ReadBytes(int(authLen))
-	if err != nil {
-		return APReqPayload{}, err
-	}
-	return APReqPayload{
-		TicketVLen: ticketLen,
-		TicketV:    ticket,
-		AuthLen:    authLen,
-		AuthCipher: authCipher,
-	}, nil
-}
-
-func DecodeTicketV(ticketCipher []byte, kv [8]byte) (TicketVPlain, error) {
-	plain, err := crypto.DecryptDESCBC(kv, ticketCipher)
-	if err != nil {
-		return TicketVPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	c := NewCursor(plain)
-	keyBytes, err := c.ReadBytes(8)
-	if err != nil {
-		return TicketVPlain{}, err
-	}
-	idClient, err := c.ReadKString()
-	if err != nil {
-		return TicketVPlain{}, err
-	}
-	adc, err := c.ReadUint32()
-	if err != nil {
-		return TicketVPlain{}, err
-	}
-	idV, err := c.ReadKString()
-	if err != nil {
-		return TicketVPlain{}, err
-	}
-	ts4, err := c.ReadUint32()
-	if err != nil {
-		return TicketVPlain{}, err
-	}
-	lifetime, err := c.ReadUint32()
-	if err != nil {
-		return TicketVPlain{}, err
-	}
-	var out TicketVPlain
-	copy(out.KeyCV[:], keyBytes)
-	out.IDClient = idClient
-	out.ADc = adc
-	out.IDV = idV
-	out.TS4 = ts4
-	out.Lifetime = lifetime
-	return out, nil
-}
-
-func DecodeAuthenticatorCV(authCipher []byte, keyCV [8]byte) (AuthenticatorCVPlain, error) {
-	plain, err := crypto.DecryptDESCBC(keyCV, authCipher)
-	if err != nil {
-		return AuthenticatorCVPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	c := NewCursor(plain)
-	idClient, err := c.ReadKString()
-	if err != nil {
-		return AuthenticatorCVPlain{}, err
-	}
-	adc, err := c.ReadUint32()
-	if err != nil {
-		return AuthenticatorCVPlain{}, err
-	}
-	ts5, err := c.ReadUint32()
-	if err != nil {
-		return AuthenticatorCVPlain{}, err
-	}
-	return AuthenticatorCVPlain{
-		IDClient: idClient,
-		ADc:      adc,
-		TS5:      ts5,
-	}, nil
-}
-
-func BuildAPRepPayload(ts5 uint32, keyCV [8]byte) ([]byte, error) {
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, ts5+1)
-	cipherData, err := crypto.EncryptDESCBC(keyCV, tmp)
-	if err != nil {
-		return nil, errorFromCode(ErrDESPadding)
-	}
-	return BuildASRepPayload(cipherData)
-}
-
-// ParseAPPReqPayload 解析AP-REQ消息的负载，返回一个APPReqPayload结构体和错误信息
-func ParseAPPReqPayload(raw []byte) (APPReqPayload, error) {
-	c := NewCursor(raw)
-	idClient, err := c.ReadKString()
-	if err != nil {
-		return APPReqPayload{}, err
-	}
-	cipherLen, err := c.ReadUint16()
-	if err != nil {
-		return APPReqPayload{}, err
-	}
-	cipher, err := c.ReadBytes(int(cipherLen))
-	if err != nil {
-		return APPReqPayload{}, err
-	}
-	sigBytes, err := c.ReadBytes(256)
-	if err != nil {
-		return APPReqPayload{}, err
-	}
-	var sig [256]byte
-	copy(sig[:], sigBytes)
-	return APPReqPayload{
-		IDClient:  idClient,
-		CipherLen: cipherLen,
-		Cipher:    cipher,
-		RSASignC:  sig,
-	}, nil
-}
-
-// DecryptAPPReqPlain 解密AP-REQ消息中的密文数据，返回一个APPReqPlain结构体和错误信息
-func DecryptAPPReqPlain(cipherBytes []byte, keyCV [8]byte) (APPReqPlain, error) {
-	plain, err := crypto.DecryptDESCBC(keyCV, cipherBytes)
-	if err != nil {
-		return APPReqPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	c := NewCursor(plain)
-	ptyOp, err := c.ReadBytes(1)
-	if err != nil {
-		return APPReqPlain{}, err
-	}
-	ptySessionID, err := c.ReadUint32()
-	if err != nil {
-		return APPReqPlain{}, err
-	}
-	payloadLen, err := c.ReadUint32()
-	if err != nil {
-		return APPReqPlain{}, err
-	}
-	payload, err := c.ReadBytes(int(payloadLen))
-	if err != nil {
-		return APPReqPlain{}, err
-	}
-	return APPReqPlain{
-		PtyOp:        ptyOp[0],
-		PtySessionID: ptySessionID,
-		PayloadLen:   payloadLen,
-		Payload:      payload,
-	}, nil
-}
-
-func BuildAPPRepPayload(ptyEvent uint8, ptySessionID uint32, exitCode int32, payload []byte, keyCV [8]byte, signV func([]byte) ([256]byte, error)) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	body := bytes.NewBuffer(nil)
-	body.WriteByte(ptyEvent)
-	tmp4 := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp4, ptySessionID)
-	body.Write(tmp4)
-	binary.BigEndian.PutUint32(tmp4, uint32(exitCode))
-	body.Write(tmp4)
-	binary.BigEndian.PutUint32(tmp4, uint32(len(payload)))
-	body.Write(tmp4)
-	body.Write(payload)
-	cipherData, err := crypto.EncryptDESCBC(keyCV, body.Bytes())
-	if err != nil {
-		return nil, errorFromCode(ErrDESPadding)
-	}
-	tmp2 := make([]byte, 2)
-	binary.BigEndian.PutUint16(tmp2, uint16(len(cipherData)))
-	buf.Write(tmp2)
-	buf.Write(cipherData)
-	sig, err := signV(cipherData)
-	if err != nil {
-		return nil, err
-	}
-	buf.Write(sig[:])
-	return buf.Bytes(), nil
-}
-
-func BuildAPRepPlain(ts5 uint32, keyCV [8]byte) ([]byte, error) {
-	return BuildAPRepPayload(ts5, keyCV)
-}
-
-func DecryptAPRepPlain(cipherBytes []byte, keyCV [8]byte) (APRepPlain, error) {
-	plain, err := crypto.DecryptDESCBC(keyCV, cipherBytes)
-	if err != nil {
-		return APRepPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	if len(plain) < 4 {
-		return APRepPlain{}, errorFromCode(ErrTicketInvalid)
-	}
-	return APRepPlain{
-		TS5Plus1: binary.BigEndian.Uint32(plain[:4]),
-	}, nil
-}
-
-func VerifyCipherSignature(seq uint32, cipherData []byte, sig [256]byte, pub *crypto.RSAKey) error {
-	return errorFromCode(crypto.RsaVerifySignature(seq, cipherData, sig, pub))
-}
-
-func SignSHA256(msg []byte, priv *crypto.RSAKey) ([256]byte, error) {
-	sig, code := crypto.RsaSignMessage(msg, priv)
-	return sig, errorFromCode(code)
-}
-
-func VerifySHA256(msg []byte, sig [256]byte, pub *crypto.RSAKey) error {
-	return errorFromCode(crypto.RsaVerifyMessage(msg, sig, pub))
-}
-
 // LoadKey8 从指定路径加载一个8字节的密钥（DES密钥），
 // 如果路径为空或加载失败，则使用fallbackSeed生成一个8字节的密钥。返回加载的密钥和错误信息。
 func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
@@ -676,6 +247,38 @@ func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
 	}
 	sum := crypto.Sum256([]byte(fallbackSeed))
 	copy(out[:], sum[:8])
+	return out, nil
+}
+
+// LoadConfiguredKey8 从指定的路径或内联字符串加载一个8字节的密钥（DES密钥）。
+// 如果内联字符串不为空且有效，则优先使用内联字符串；否则从文件路径加载密钥。返回加载的密钥和错误信息。
+func LoadConfiguredKey8(path string, inline string, label string) ([8]byte, error) {
+	var out [8]byte
+	if strings.TrimSpace(inline) != "" {
+		key, ok := parseKeyBytes([]byte(inline))
+		if !ok {
+			return out, fmt.Errorf("%s key inline value is invalid", label)
+		}
+		copy(out[:], key)
+		return out, nil
+	}
+	if strings.TrimSpace(path) == "" {
+		return out, fmt.Errorf("%s key path or inline key is required", label)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out, fmt.Errorf("read %s key %q: %w", label, path, err)
+	}
+	if len(b) == 8 {
+		copy(out[:], b)
+		return out, nil
+	}
+	//返回8字节的密钥
+	key, ok := parseKeyBytes(b)
+	if !ok {
+		return out, fmt.Errorf("%s key %q is not 8-byte raw, hex, base64, or key JSON", label, path)
+	}
+	copy(out[:], key)
 	return out, nil
 }
 
@@ -873,64 +476,6 @@ func CertFindByID(id string, certDB []*Certificate) *Certificate {
 		}
 	}
 	return nil
-}
-
-func ParseAPPRepPayload(raw []byte) (APPRepPayload, error) {
-	c := NewCursor(raw)
-	cipherLen, err := c.ReadUint16()
-	if err != nil {
-		return APPRepPayload{}, err
-	}
-	cipher, err := c.ReadBytes(int(cipherLen))
-	if err != nil {
-		return APPRepPayload{}, err
-	}
-	sigBytes, err := c.ReadBytes(256)
-	if err != nil {
-		return APPRepPayload{}, err
-	}
-	var sig [256]byte
-	copy(sig[:], sigBytes)
-	return APPRepPayload{
-		CipherLen: cipherLen,
-		Cipher:    cipher,
-		RSASignV:  sig,
-	}, nil
-}
-
-func DecryptAPPRepPlain(cipherBytes []byte, keyCV [8]byte) (APPRepPlain, error) {
-	plain, err := crypto.DecryptDESCBC(keyCV, cipherBytes)
-	if err != nil {
-		return APPRepPlain{}, errorFromCode(ErrDESDecryptFail)
-	}
-	c := NewCursor(plain)
-	ptyEvent, err := c.ReadBytes(1)
-	if err != nil {
-		return APPRepPlain{}, err
-	}
-	ptySessionID, err := c.ReadUint32()
-	if err != nil {
-		return APPRepPlain{}, err
-	}
-	exitCode, err := c.ReadUint32()
-	if err != nil {
-		return APPRepPlain{}, err
-	}
-	payloadLen, err := c.ReadUint32()
-	if err != nil {
-		return APPRepPlain{}, err
-	}
-	payload, err := c.ReadBytes(int(payloadLen))
-	if err != nil {
-		return APPRepPlain{}, err
-	}
-	return APPRepPlain{
-		PtyEvent:     ptyEvent[0],
-		PtySessionID: ptySessionID,
-		ExitCode:     int32(exitCode),
-		PayloadLen:   payloadLen,
-		Payload:      payload,
-	}, nil
 }
 
 func Hash256(data []byte) [32]byte {
