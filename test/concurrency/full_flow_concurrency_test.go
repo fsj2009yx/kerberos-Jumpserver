@@ -29,15 +29,18 @@ import (
 )
 
 const (
+	// 并发客户端数需要和临时 AS/V 客户端白名单数量保持一致。
 	concurrentClients = 100
 	idTGS             = "TGS"
 	idV               = "verify_server"
-	ptyEventOpenOK    = 0x11
-	ptyEventOutput    = 0x12
-	ptyEventExit      = 0x13
-	ptyOpOpen         = 0x01
-	ptyOpInput        = 0x02
-	ptyOpClose        = 0x05
+
+	// V 端 PTY 子协议事件和操作码，测试会覆盖 open/input/close 的最小业务闭环。
+	ptyEventOpenOK = 0x11
+	ptyEventOutput = 0x12
+	ptyEventExit   = 0x13
+	ptyOpOpen      = 0x01
+	ptyOpInput     = 0x02
+	ptyOpClose     = 0x05
 )
 
 type testEnv struct {
@@ -98,6 +101,7 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 	clientPriv := stdlibPrivToRaw(clientStdPriv)
 	clientPub := clientPriv.PublicKey()
 
+	// V 的私钥用于给 APP_REP 签名，测试客户端用对应公钥校验响应不可否认性。
 	vStdPriv, err := stdrsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate v rsa key: %v", err)
@@ -107,6 +111,7 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 
 	kTGSPath := filepath.Join(keysDir, "k_tgs.bin")
 	kVPath := filepath.Join(keysDir, "k_v.bin")
+	// k_tgs 由 AS/TGS 共享，k_v 由 TGS/V 共享；这两把 8 字节 DES 密钥把票据链路串起来。
 	mustWriteFile(t, kTGSPath, []byte("KTGSKEY!"))
 	mustWriteFile(t, kVPath, []byte("KVKEY123"))
 
@@ -125,6 +130,7 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		if err != nil {
 			t.Fatalf("derive kc for %s: %v", clientID, err)
 		}
+		// AS 需要客户端长期密钥 K_c 来加密 AS_REP；V 需要客户端证书来校验 APP_REQ 签名。
 		clientEntriesAS = append(clientEntriesAS, asconfig.ClientEntry{
 			ID:       clientID,
 			KcHex:    hex.EncodeToString(kc[:]),
@@ -144,32 +150,41 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 	vWebPort := freePort(t)
 
 	asCfg := asconfig.Config{
-		NodeID:            "AS",
-		ListenHost:        "127.0.0.1",
-		ListenPort:        asPort,
-		WebUIHost:         "127.0.0.1",
-		WebUIPort:         asWebPort,
-		ThreadPoolSize:    8,
-		AntiReplayWindow:  4096,
+		NodeID:     "AS",
+		ListenHost: "127.0.0.1",
+		ListenPort: asPort,
+		WebUIHost:  "127.0.0.1",
+		WebUIPort:  asWebPort,
+		// AS 配置校验要求线程池大小大于 0；当前服务实现实际按连接启动 goroutine。
+		ThreadPoolSize: 8,
+		// 重放窗口必须大于并发请求规模，避免同一秒内不同客户端请求被窗口容量挤出。
+		AntiReplayWindow: 4096,
+		// 票据有效期覆盖整个测试运行时间，使失败更集中暴露在并发和协议处理上。
 		TicketLifetimeSec: 600,
-		MaxClients:        n,
-		MaxPayloadBytes:   64 * 1024,
-		ReadTimeoutSec:    15,
-		CertPath:          "",
-		PrivKeyPath:       "",
-		LogLevel:          "INFO",
-		LogFile:           filepath.Join(logsDir, "as.log"),
-		SecurityLogFile:   filepath.Join(logsDir, "as_security.log"),
-		KtgsPath:          kTGSPath,
-		ClientDB:          clientEntriesAS,
+		// MaxClients 与测试并发客户端数一致，确保所有临时客户端都能通过 AS 配置校验。
+		MaxClients: n,
+		// 64 KiB 覆盖 AS_REP/TGS_REP/APP 帧，和测试客户端读取上限保持一致。
+		MaxPayloadBytes: 64 * 1024,
+		// 超时时间给并发建连和 PTY 回显留余量，同时避免失败时无限阻塞。
+		ReadTimeoutSec:  15,
+		CertPath:        "",
+		PrivKeyPath:     "",
+		LogLevel:        "INFO",
+		LogFile:         filepath.Join(logsDir, "as.log"),
+		SecurityLogFile: filepath.Join(logsDir, "as_security.log"),
+		// AS 用 k_tgs 加密 TGT；TGS 必须加载同一文件才能解密票据。
+		KtgsPath: kTGSPath,
+		// AS 客户端库提供每个 CLIENT_xxx 的 K_c 和证书路径，是并发身份注册的基础。
+		ClientDB: clientEntriesAS,
 	}
 	tgsCfg := tgsconfig.Config{
-		NodeID:            idTGS,
-		ListenHost:        "127.0.0.1",
-		ListenPort:        tgsPort,
-		WebUIHost:         "127.0.0.1",
-		WebUIPort:         tgsWebPort,
-		AntiReplayWindow:  4096,
+		NodeID:           idTGS,
+		ListenHost:       "127.0.0.1",
+		ListenPort:       tgsPort,
+		WebUIHost:        "127.0.0.1",
+		WebUIPort:        tgsWebPort,
+		AntiReplayWindow: 4096,
+		// TGS 生成给 V 的服务票据，生命周期需覆盖后续 AP 和 APP 阶段。
 		TicketLifetimeSec: 600,
 		MaxPayloadBytes:   64 * 1024,
 		ReadTimeoutSec:    15,
@@ -178,7 +193,9 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		LogLevel:          "INFO",
 		LogFile:           filepath.Join(logsDir, "tgs.log"),
 		SecurityLogFile:   filepath.Join(logsDir, "tgs_security.log"),
-		KTGSPath:          kTGSPath,
+		// 与 AS 使用同一 k_tgs，验证 AS 发出的 TGT 可以被 TGS 解密。
+		KTGSPath: kTGSPath,
+		// ServiceDB 把 id_v 映射到 k_v；客户端请求 idV 时会拿到可被 V 解密的 Ticket_V。
 		ServiceDB: []tgsconfig.ServiceEntry{
 			{IDV: idV, KVPath: kVPath, Addr: fmt.Sprintf("127.0.0.1:%d", vPort)},
 		},
@@ -191,16 +208,21 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		WebUIPort:        vWebPort,
 		AntiReplayWindow: 4096,
 		MaxPayloadBytes:  64 * 1024,
-		ReadTimeoutSec:   30,
-		CertPath:         vCertPath,
-		PrivKeyPath:      vPrivPath,
-		LogLevel:         "INFO",
-		LogFile:          filepath.Join(logsDir, "v.log"),
-		SecurityLogFile:  filepath.Join(logsDir, "v_security.log"),
-		KVPath:           kVPath,
-		PTYShell:         "/bin/sh",
-		PTYDefaultTerm:   "xterm-256color",
-		ClientDB:         clientEntriesV,
+		// V 阶段包含 AP 认证、PTY open/input/close 和异步输出读取，超时略大于 AS/TGS。
+		ReadTimeoutSec: 30,
+		// V 证书/私钥用于 APP_REP 签名，测试客户端用 vPub 验签。
+		CertPath:        vCertPath,
+		PrivKeyPath:     vPrivPath,
+		LogLevel:        "INFO",
+		LogFile:         filepath.Join(logsDir, "v.log"),
+		SecurityLogFile: filepath.Join(logsDir, "v_security.log"),
+		// 与 TGS ServiceDB 中的 k_v 保持一致，验证 Ticket_V 可以被 V 解密。
+		KVPath: kVPath,
+		// 使用真实 shell 打开 PTY，会执行 printf marker 并等待输出回显。
+		PTYShell:       "/bin/sh",
+		PTYDefaultTerm: "xterm-256color",
+		// V 客户端库用于 APP_REQ RSA 验签；数量需要覆盖所有并发客户端。
+		ClientDB: clientEntriesV,
 	}
 
 	asCfgPath := filepath.Join(root, "as_config.json")
