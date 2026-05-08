@@ -4,11 +4,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/fatedier/golib/log"
 
 	"security-project/common/krb"
 )
@@ -19,7 +20,7 @@ func (s *Service) runWebUI() {
 		s.state.mu.RLock()
 		active := len(s.state.Sessions)
 		s.state.mu.RUnlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSONResponse(w, r, "[V]", "/api/status", map[string]any{
 			"node_id":               s.Config.NodeID,
 			"uptime_s":              int64(time.Since(s.startTime).Seconds()),
 			"active_sessions":       active,
@@ -43,15 +44,23 @@ func (s *Service) runWebUI() {
 				"pty_session_id": sess.PtySessionID,
 			})
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"sessions": out})
+		writeJSONResponse(w, r, "[V]", "/api/sessions", map[string]any{"sessions": out})
 	})
 	s.httpServer = &http.Server{
 		Addr:              net.JoinHostPort(s.Config.WebUIHost, fmt.Sprintf("%d", s.Config.WebUIPort)),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("[V] webui listening on %s", s.httpServer.Addr)
+	log.Infof("[V] webui listening addr=%s", s.httpServer.Addr)
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("[V] webui failed: %v", err)
+		log.Errorf("[V] webui failed addr=%s err=%v", s.httpServer.Addr, err)
 	}
+}
+
+func writeJSONResponse(w http.ResponseWriter, r *http.Request, component string, route string, payload any) {
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Errorf("%s webui response encode failed route=%s remote=%s err=%v", component, route, r.RemoteAddr, err)
+		return
+	}
+	log.Infof("%s webui response sent route=%s remote=%s", component, route, r.RemoteAddr)
 }
