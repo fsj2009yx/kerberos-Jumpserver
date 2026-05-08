@@ -1506,102 +1506,239 @@ free(payload);
 
 # 第八章　自定义证书设计
 
-## 证书的作用
+## 设计目标
 
-在本项目中，证书（Certificate）是绑定 "身份 ID" 与 "RSA 公钥" 的凭证，类似于现实中的身份证。
+本项目的证书不是 X.509 证书，也不参与 Kerberos 三阶段票据认证。Kerberos 的 AS/TGS/AP 流程负责确认 Client 与 V 之间共享了 `K_c_v`；证书体系负责在后续 `APP_REQ` / `APP_REP` 业务帧中提供 RSA 验签所需的公钥绑定。
 
-证书解决了这样一个问题：V 服务器需要知道 "用哪个公钥来验签"——而公钥由 AS 颁发的证书提供，V 通过查询 AS 的证书接口获取 Client 的公钥。
+证书要解决的问题是：收到一条业务帧后，接收方必须知道应该使用哪个 RSA 公钥验签。
 
-证书的可信度来自 **自签名**：证书中的 `sign` 字段是主体用自己的 RSA 私钥对证书核心内容（id + issuer + public_key + expire）的签名。这意味着只有持有对应私钥的一方才能生成有效证书，任何第三方篡改证书内容后 `sign` 字段将无法通过验证。
+- `APP_REQ`：Client 使用自己的 RSA 私钥 `SK_c` 对 `Seq_Num || Cipher_Data` 签名，V 使用 Client 证书中的 `PK_c` 验签。
+- `APP_REP`：V 使用自己的 RSA 私钥 `SK_v` 对 `Seq_Num || Cipher_Data` 签名，Client 使用 V 证书中的 `PK_v` 验签。
 
-> **注意**：本项目的证书是 "自签名" 的简化版证书，不是 X.509 证书体系
->
-> 在真实场景中，证书应由受信任的第三方 CA（证书颁发机构）签发；课设中由课程组织者统一离线生成分发
+因此，证书的核心职责是绑定：
+
+```text
+Identity ID  <->  RSA public key (n, e)
+```
+
+证书的可信来源是离线初始化和配置分发。本课设使用简化的自签名证书：证书主体由证书对应的私钥签名，接收方通过预置路径加载证书，并在运行时检查证书未过期、证书主体未被篡改、证书 ID 与协议身份一致。
+
+## 身份与文件职责
+
+| 主体 | 持有私钥 | 分发证书 | 运行时用途 |
+| ---- | -------- | -------- | ---------- |
+| Client `CLIENT_N` | `client/keys/clientN_priv.json` | `certs/clientN_cert.json` | Client 用私钥签 `APP_REQ`；V 加载 Client 证书，用证书公钥验 `APP_REQ`。 |
+| V `verify_server` | `keys/v_priv.json` | `certs/v_cert.json` | V 用私钥签 `APP_REP`；Client 加载 V 证书，用证书公钥验 `APP_REP`。 |
+
+证书已经包含公钥，因此默认不需要单独保存 `*_pub.json`。独立公钥文件只作为调试导出，不属于协议最小必需文件。
+
+当前工程中 `client/certs/cert_client.json` 和 `client/keys/client_priv.json` 是 Python proxy 的活动身份别名，用于指向当前登录使用的 Client 证书和私钥；它们是运行便利文件，不是证书体系中的新身份。
+
+## 私钥 JSON 格式
+
+RSA 私钥文件只在私钥持有方本地保存，不通过网络传输，不写入日志。
+
+```json
+{
+  "n": "RSA_MODULUS_HEX",
+  "e": "010001",
+  "d": "RSA_PRIVATE_EXPONENT_HEX"
+}
+```
+
+字段说明：
+
+- `n`：RSA-2048 模数，十六进制字符串。
+- `e`：RSA 公钥指数，固定为 `010001`（十进制 65537）。
+- `d`：RSA 私钥指数，十六进制字符串；公钥或证书中不得包含该字段。
 
 ## 证书 JSON 格式
 
-以下是使用 json 进行简易证书封装，证书结构示例：
+证书只携带公开信息和签名，不携带私钥。
 
 ```json
 {
   "id": "CLIENT_1",
-  "issuer": "MY_ROOT_CA",
+  "issuer": "LOCAL_DEBUG_CA",
   "public_key": {
-    "n": "00c4d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1...",
+    "n": "RSA_MODULUS_HEX",
     "e": "010001"
   },
-  "expire": "2026-12-31",
-  "sign": "3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3..."
+  "expire": "2036-12-31",
+  "sign": "RSA_SIGNATURE_HEX"
 }
 ```
 
-**字段说明**：
+字段说明：
 
-- `id`：主体唯一标识。Client 使用 `CLIENT_1`~`CLIENT_4`，V 服务器使用 `verify_server`
-- `issuer`：签发者字段，CA 机构的标识符，作为证书签名的机构背书
-- `public_key.n`：RSA 模数，2048 位，十六进制字符串（512 个十六进制字符）
-- `public_key.e`：RSA 公钥指数，通常为 `010001`（十进制 65537）
-- `expire`：证书有效期，格式 `YYYY-MM-DD`，课设中设置为足够长的期限（如 `2027-12-31`）
-- `sign`：主体对字符串 `id + issuer + json(public_key) + expire` 的 SHA-256 哈希的 RSA 签名，Base64 编码
+- `id`：证书绑定的协议身份。Client 使用 `CLIENT_1`、`CLIENT_2` 等；V 使用 `verify_server`。
+- `issuer`：离线签发者标签，用于标记证书来源；本课设不实现完整 CA 链。
+- `public_key.n` / `public_key.e`：验签用 RSA 公钥。
+- `expire`：证书有效期，格式为 `YYYY-MM-DD`。
+- `sign`：对证书主体的 RSA-SHA256 签名，推荐保存为十六进制字符串。
 
-## 证书生成脚本（离线，Python 参考实现）
+签名主体不包含 `sign` 字段。规范化后的证书主体为：
 
-证书 **生成** 是离线一次性操作，可以使用库辅助生成（仅用于初始化阶段，不含在提交的系统代码中）：
+```json
+{"id":"CLIENT_1","issuer":"LOCAL_DEBUG_CA","public_key":{"n":"...","e":"010001"},"expire":"2036-12-31"}
+```
+
+证书签名计算方式：
+
+```text
+Body      = JSON(id, issuer, public_key, expire)
+Digest    = SHA256(Body)
+Signature = RSA_PKCS1_v1_5_Sign(Digest, SubjectPrivateKey)
+```
+
+证书校验方式：
+
+```text
+1. 解析证书 JSON。
+2. 检查 expire >= 当前日期。
+3. 重新构造 Body，计算 SHA256(Body)。
+4. 使用证书 public_key 对 sign 验签。
+5. 检查证书 id 与当前协议身份一致。
+```
+
+## APP_REQ 验签链路
+
+`APP_REQ` 外层结构中包含 `ID_Client`、`Cipher_Data` 和 `RSA_Sign_c`。V 收到业务帧后必须先验签，再解密。
+
+处理顺序：
+
+1. V 根据 AP 阶段建立的 Session 找到当前 `ID_Client` 和 `K_c_v`。
+2. V 从证书库中读取 `certs/clientN_cert.json`，检查证书有效期和证书签名。
+3. V 检查 `cert.id == Session.ID_Client`，防止拿其他 Client 的证书替换。
+4. V 取协议头中的 `Seq_Num` 与报文外层的 `Cipher_Data`，拼接：
+
+   ```text
+   M = Seq_Num || Cipher_Data
+   ```
+
+5. V 使用 `cert.public_key` 验证 `RSA_Sign_c == Sign_SK_c(SHA256(M))`。
+6. 只有验签成功后，V 才使用 `K_c_v` 解密 `Cipher_Data` 并执行 PTY 操作。
+
+这样即使攻击者拿到了 `K_c_v`，也无法伪造新的 `APP_REQ`，因为缺少 Client 私钥 `SK_c`。
+
+## APP_REP 验签链路
+
+`APP_REP` 外层结构中包含 `Cipher_Data` 和 `RSA_Sign_v`。Client 收到 V 的事件帧后同样必须先验签，再解密。
+
+处理顺序：
+
+1. Client 预置或从可信配置加载 `certs/v_cert.json`。
+2. Client 检查 V 证书有效期和证书签名。
+3. Client 检查 `cert.id == ID_V`，其中默认 V 身份为 `verify_server`。
+4. Client 取协议头中的 `Seq_Num` 与响应外层的 `Cipher_Data`，拼接：
+
+   ```text
+   M = Seq_Num || Cipher_Data
+   ```
+
+5. Client 使用 `cert.public_key` 验证 `RSA_Sign_v == Sign_SK_v(SHA256(M))`。
+6. 只有验签成功后，Client 才使用 `K_c_v` 解密 `Cipher_Data` 并交给终端显示。
+
+这样可以防止中间人伪造 V 的输出帧，也能让 V 对自己发送过的响应帧承担不可否认性。
+
+## 最小文件集合
+
+按上述链路，离线初始化后至少需要以下文件：
+
+```text
+keys/v_priv.json                 # V 本地私钥，V 签 APP_REP
+certs/v_cert.json                # V 证书，Client 验 APP_REP
+
+client/keys/clientN_priv.json    # Client N 本地私钥，Client 签 APP_REQ
+certs/clientN_cert.json          # Client N 证书，V 验 APP_REQ
+```
+
+为了当前 Python proxy 直接运行，还保留两个活动身份别名：
+
+```text
+client/keys/client_priv.json     # 当前 proxy 使用的 Client 私钥
+client/certs/cert_client.json    # 当前 proxy 展示/使用的 Client 证书
+```
+
+其中 `client/certs/cert_client.json` 与 `certs/clientN_cert.json` 内容相同，只是放在 Client 本地，便于 `/api/cert` 返回当前 Client 证书。
+
+## 初始化脚本
+
+证书和 RSA 密钥生成属于离线初始化步骤，可以使用 Python 的 `cryptography` 库辅助生成；运行时加解密和验签仍由项目自实现算法负责。
+
+脚本入口：
+
+```bash
+client/proxy/.venv/bin/python script/v_server/init_cert.py
+client/proxy/.venv/bin/python script/client/init_cert.py 1
+client/proxy/.venv/bin/python script/client/init_cert.py
+```
+
+V 脚本默认生成：
+
+```text
+keys/v_priv.json
+certs/v_cert.json
+```
+
+Client 脚本输入数字 `N` 后默认生成：
+
+```text
+client/keys/clientN_priv.json
+client/certs/cert_clientN.json
+certs/clientN_cert.json
+client/keys/client_priv.json
+client/certs/cert_client.json
+```
+
+若调试时需要单独导出公钥 JSON，可以追加 `--write-public-json`，但协议正常运行不依赖 `*_pub.json`。
+
+核心生成逻辑如下，完整脚本见 `script/v_server/init_cert.py` 与 `script/client/init_cert.py`：
 
 ```python
 import json
-from datetime import datetime
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from pathlib import Path
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+
+def write_json(path: Path, value: dict, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    path.chmod(mode)
 
 
 def gen_rsa_pair():
-    # 生成 2048 位 RSA 密钥
     priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pub = priv.public_key()
-    numbers = pub.public_numbers()
-    # 提取 n 和 e 的 16 进制字符串
-    n_hex = format(numbers.n, "x")
-    e_hex = format(numbers.e, "x").zfill(6)  # 通常是 010001
-    return priv, {"n": n_hex, "e": e_hex}
+    pub_numbers = priv.public_key().public_numbers()
+    priv_numbers = priv.private_numbers()
+    private_doc = {
+        "n": format(pub_numbers.n, "x"),
+        "e": format(pub_numbers.e, "x").zfill(6),
+        "d": format(priv_numbers.d, "x"),
+    }
+    public_doc = {"n": private_doc["n"], "e": private_doc["e"]}
+    return private_doc, public_doc, priv
 
 
-def create_certificate(entity_id, issuer, expire_date, priv_key, pub_data):
-    # 1. 构造证书主体 (待签名部分)
-    cert_body = {
+def cert_body(entity_id: str, issuer: str, public_doc: dict, expire: str) -> dict:
+    return {
         "id": entity_id,
         "issuer": issuer,
-        "public_key": pub_data,
-        "expire": expire_date,
+        "public_key": {"n": public_doc["n"], "e": public_doc["e"]},
+        "expire": expire,
     }
-    # 2. 将主体转为稳定的字符串进行签名 (建议排序 key 以保证唯一性)
-    data_to_sign = json.dumps(cert_body, sort_keys=True).encode()
-    # 3. 计算签名 (使用私钥进行 RSA-PSS 或 PKCS1v15 签名)
-    signature = priv_key.sign(
-        data_to_sign,
-        padding.PKCS1v15(),  # 简单直接，符合你 408 复习的经典 RSA 签名
-        hashes.SHA256(),
-    )
-    # 4. 组装完整证书
-    cert_body["sign"] = signature.hex()
-    return cert_body
 
 
-# --- 生成 Client 证书 --
-client_priv, client_pub = gen_rsa_pair()
-client_cert = create_certificate(
-    "CLIENT_001", "MY_ROOT_CA", "2026-12-31", client_priv, client_pub
-)
-# --- 生成 V (堡垒机) 证书 --
-v_priv, v_pub = gen_rsa_pair()
-v_cert = create_certificate("SERVER_V_001", "MY_ROOT_CA", "2026-12-31", v_priv, v_pub)
-# 保存结果
-with open("cert_client.json", "w") as f:
-    json.dump(client_cert, f, indent=2)
-with open("cert_v.json", "w") as f:
-    json.dump(v_cert, f, indent=2)
-print("Certificates generated successfully.")
+def cert_body_bytes(body: dict) -> bytes:
+    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
+
+def create_certificate(entity_id: str, issuer: str, expire: str, public_doc: dict, priv) -> dict:
+    body = cert_body(entity_id, issuer, public_doc, expire)
+    signature = priv.sign(cert_body_bytes(body), padding.PKCS1v15(), hashes.SHA256())
+    body["sign"] = signature.hex()
+    return body
 ```
 
 ---
@@ -2055,7 +2192,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 | +0                          | **Kstring**    | **ID_Client**   | **路由标识**：Server 用于检索 `Key_c_v` 和 `Pub_c`。  |
 | + (2 + Len_ID)              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                   |
 | + (4 + Len_ID)              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（含 IV + 业务明文）。 |
-| + (4 + Len_ID + Cipher_Len) | **bytes(256)** | **RSA_Sign_c**  | **外层签名**：Client 私钥对 `Seq_Num                  |
+| + (4 + Len_ID + Cipher_Len) | **bytes(256)** | **RSA_Sign_c**  | **外层签名**：Client 私钥对签名                       |
 
 **Cipher_Data 解密后明文结构（PTY 控制帧）**
 
@@ -2159,7 +2296,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 | --------------- | -------------- | --------------- | --------------------------------------------------- |
 | +0              | **uint16**     | **Cipher_Len**  | 后续加密部分（Cipher_Data）的长度。                 |
 | +2              | **bytes**      | **Cipher_Data** | **核心密文**：由 `Key_c_v` 加密（包含 IV + 密文）。 |
-| +(2+Cipher_Len) | **bytes(256)** | **RSA_Sign_v**  | **外层安全凭证**：V 私钥对 `Seq_Num                 |
+| +(2+Cipher_Len) | **bytes(256)** | **RSA_Sign_v**  | **外层安全凭证**：V 私钥对签名                      |
 
 **Cipher_Data 解密后明文结构（PTY 事件帧）**
 
@@ -2235,12 +2372,11 @@ Client 收到 **APP_REP** 后：
 
    计算待验证消息摘要：$M' = \text{Seq\_Num} \parallel \text{Cipher\_Data}$
 2. **解密签名（优先验签）**：
-
-   $$
+$$
    H_{\text{dec}} = \text{Ver}_{\text{PK}_v}(\text{Sig\_SK}_v)
    $$
 
-   - **$\text{PK}_v$**：预留的 Server 公钥。
+- **$\text{PK}_v$**：预留的 Server 公钥。
 3. **比对哈希与拦截**：
 
    检验 $H_{\text{dec}} \stackrel{?}{=} \text{SHA256}(M')$

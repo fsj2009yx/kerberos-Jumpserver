@@ -1,5 +1,5 @@
 {
-    "client_id": "CLIENT_001",
+    "client_id": "CLIENT_1",
     "ad_c": 0,
     "as_host": "127.0.0.1",
     "as_port": 8881,
@@ -8,5 +8,6 @@
     "v_host": "127.0.0.1",
     "v_port": 8883,
     "cert_path": "../certs/cert_client.json",
-    "privkey_path": "../keys/client_priv.json"
+    "privkey_path": "../keys/client_priv.json",
+    "service_id": "verify_server"
 }
