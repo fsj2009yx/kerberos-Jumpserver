@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fatedier/golib/log"
+
 	"security-project/common/krb"
 )
 
@@ -65,17 +67,22 @@ func LoadConfig(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultPath
 	}
+	log.Infof("[TGS] loading config path=%s", path)
 	b, err := os.ReadFile(path)
 	if err != nil {
+		log.Errorf("[TGS] read config failed path=%s err=%v", path, err)
 		return nil, fmt.Errorf("read config %q: %w", path, err)
 	}
 	var cfg Config
 	if err := json.Unmarshal(b, &cfg); err != nil {
+		log.Errorf("[TGS] parse config failed path=%s err=%v", path, err)
 		return nil, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	if err := cfg.validate(); err != nil {
+		log.Errorf("[TGS] validate config failed path=%s err=%v", path, err)
 		return nil, fmt.Errorf("validate config %q: %w", path, err)
 	}
+	log.Infof("[TGS] config loaded node_id=%s listen=%s:%d webui=%s:%d services=%d", cfg.NodeID, cfg.ListenHost, cfg.ListenPort, cfg.WebUIHost, cfg.WebUIPort, len(cfg.ServiceDB))
 	return &cfg, nil
 }
 
