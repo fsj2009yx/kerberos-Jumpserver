@@ -21,7 +21,6 @@ type SessionContext struct {
 	ADc          uint32
 	KeyCV        [8]byte
 	ExpireAt     uint32
-	SendSeq      uint32
 	PtySessionID uint32
 	LastIO       time.Time
 	TotalFrames  uint64
@@ -32,7 +31,6 @@ type SessionContext struct {
 }
 
 type VState struct {
-	SeqNum   uint32
 	IDV      string
 	Kv       [8]byte
 	Sessions map[string]*SessionContext

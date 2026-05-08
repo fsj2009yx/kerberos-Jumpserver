@@ -37,7 +37,8 @@ func main() {
 		fmt.Printf("❌ 阶段一失败: 哈希值不匹配！\n测试模块期望值: %x\n目标程序实际值: %x\n提示: 请检查内部状态的大端序转换或末尾 Padding 逻辑。\n", expectedHash1, actualHash1)
 		return
 	}
-	fmt.Println("✅ 阶段一通过：常规文本哈希计算完全一致！\n")
+	fmt.Println("✅ 阶段一通过：常规文本哈希计算完全一致！")
+	fmt.Println()
 
 	// --- 阶段二：纯二进制流/防截断测试 ---
 	fmt.Println("==================================================")
@@ -69,7 +70,8 @@ func main() {
 		fmt.Printf("❌ 阶段二失败: 二进制流哈希值不匹配！\n测试模块期望值: %x\n目标程序实际值: %x\n提示: 您的程序可能将 0x00 误认为了数据结尾导致读取提前终止，必须显式传递数据长度并按纯二进制流处理！\n", expectedHash2, actualHash2)
 		return
 	}
-	fmt.Println("✅ 阶段二通过：二进制流哈希计算完全一致！能够安全承载加密网络报文。\n")
+	fmt.Println("✅ 阶段二通过：二进制流哈希计算完全一致！能够安全承载加密网络报文。")
+	fmt.Println()
 
 	// --- 结论 ---
 	fmt.Println("All tests Passed Successfully! ")

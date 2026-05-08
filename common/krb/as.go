@@ -12,9 +12,8 @@ type ASClientSecret struct {
 	ADc      uint32
 }
 
-// ASState 是AS服务器的状态结构体，包含了当前的序列号、客户端信息、TGS的密钥以及TGS的ID。
+// ASState 是AS服务器的状态结构体，包含客户端信息、TGS的密钥以及TGS的ID。
 type ASState struct {
-	SeqNum  uint32
 	Clients map[string]ASClientSecret
 	Ktgs    [8]byte
 	IDTGS   string
