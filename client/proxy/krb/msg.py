@@ -1,7 +1,8 @@
 """Kerberos消息结构定义"""
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
+import threading
 
 
 ClientState = Literal["STATE_INIT", "STATE_AS_DONE", "STATE_TGS_DONE", "STATE_V_CONNECTED", "STATE_ERROR"]
@@ -519,6 +520,7 @@ class ClientConfig:
     v_addr: tuple[str, int]
     cert_path: str
     privkey_path: str
+    service_id: str = "verify_server"
 
 
 @dataclass
@@ -526,5 +528,16 @@ class ClientRuntime:
     state: ClientState = "STATE_INIT"
     seq_num: int = 1
     session_id: Optional[str] = None
+    v_sock: Optional[Any] = None
     bundle: TicketBundle = field(default_factory=TicketBundle)
     logs: list = field(default_factory=list)
+    _seq_lock: Any = field(default_factory=threading.Lock, repr=False)
+
+    def consume_seq(self) -> int:
+        """返回本次发送使用的协议序号，并立即推进到下一个可用值。"""
+        with self._seq_lock:
+            seq = self.seq_num & 0xFFFFFFFF
+            if seq == 0:
+                seq = 1
+            self.seq_num = 1 if seq == 0xFFFFFFFF else seq + 1
+            return seq

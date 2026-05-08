@@ -11,10 +11,8 @@ type ServiceSecret struct {
 	Kv  [8]byte
 }
 
-// TGSState 包含了 TGS 服务器的状态信息
-// 包括一个序列号 SeqNum、TGS 密钥 Ktgs、TGS 的 ID 和一个映射 Services，键是服务 ID，值是包含服务 ID 和与 TGS 共享的密钥的结构体 ServiceSecret。
+// TGSState 包含了 TGS 服务器的状态信息，包括 TGS 密钥、TGS 的 ID 和服务密钥表。
 type TGSState struct {
-	SeqNum   uint32
 	Ktgs     [8]byte
 	IDTGS    string
 	Services map[string]ServiceSecret
