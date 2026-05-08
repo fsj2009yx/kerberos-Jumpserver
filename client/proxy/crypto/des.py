@@ -101,12 +101,12 @@ PC2 = [14, 17, 11, 24, 1, 5, 3, 28,
 KEY_SHIFTS = [1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1]
 
 
-def permute(data, table):
-    """执行置换操作"""
+def permute_bits(data, input_bits, table):
+    """执行DES置换，输出为紧凑的低位整数。"""
     result = 0
-    for i, pos in enumerate(table):
-        bit = (data >> (64 - pos)) & 1
-        result |= (bit << (63 - i))
+    for pos in table:
+        bit = (data >> (input_bits - pos)) & 1
+        result = (result << 1) | bit
     return result
 
 
@@ -120,7 +120,7 @@ def generate_subkeys(key_64):
     subkeys = []
     
     # PC-1置换：64位 -> 56位
-    key_56 = permute(key_64, PC1)
+    key_56 = permute_bits(key_64, 64, PC1)
     
     # 分成左右两部分各28位
     c = (key_56 >> 28) & 0xFFFFFFF
@@ -133,10 +133,7 @@ def generate_subkeys(key_64):
         
         # 合并并PC-2置换：56位 -> 48位
         cd = (c << 28) | d
-        subkey = 0
-        for i, pos in enumerate(PC2):
-            bit = (cd >> (56 - pos)) & 1
-            subkey |= (bit << (47 - i))
+        subkey = permute_bits(cd, 56, PC2)
         subkeys.append(subkey)
     
     return subkeys
@@ -158,10 +155,7 @@ def s_box_substitution(value_48):
 def feistel_round(right_32, subkey_48):
     """单轮Feistel变换"""
     # E扩展：32位 -> 48位
-    expanded = 0
-    for i, pos in enumerate(E):
-        bit = (right_32 >> (32 - pos)) & 1
-        expanded |= (bit << (47 - i))
+    expanded = permute_bits(right_32, 32, E)
     
     # 与子密钥异或
     xor_result = expanded ^ subkey_48
@@ -170,18 +164,13 @@ def feistel_round(right_32, subkey_48):
     substituted = s_box_substitution(xor_result)
     
     # P置换
-    permuted = 0
-    for i, pos in enumerate(P):
-        bit = (substituted >> (32 - pos)) & 1
-        permuted |= (bit << (31 - i))
-    
-    return permuted
+    return permute_bits(substituted, 32, P)
 
 
 def des_encrypt_block(block_64, subkeys):
     """加密单个64位块"""
     # 初始置换IP
-    block = permute(block_64, IP)
+    block = permute_bits(block_64, 64, IP)
     
     # 分成左右两部分各32位
     left = (block >> 32) & 0xFFFFFFFF
@@ -195,7 +184,7 @@ def des_encrypt_block(block_64, subkeys):
     
     # 交换左右并最终置换FP
     combined = (right << 32) | left
-    cipher = permute(combined, FP)
+    cipher = permute_bits(combined, 64, FP)
     
     return cipher
 
@@ -203,7 +192,7 @@ def des_encrypt_block(block_64, subkeys):
 def des_decrypt_block(block_64, subkeys):
     """解密单个64位块"""
     # 初始置换IP
-    block = permute(block_64, IP)
+    block = permute_bits(block_64, 64, IP)
     
     # 分成左右两部分各32位
     left = (block >> 32) & 0xFFFFFFFF
@@ -217,7 +206,7 @@ def des_decrypt_block(block_64, subkeys):
     
     # 交换左右并最终置换FP
     combined = (right << 32) | left
-    plain = permute(combined, FP)
+    plain = permute_bits(combined, 64, FP)
     
     return plain
 

@@ -21,7 +21,7 @@ func (s *Service) runWebUI() {
 		resp := map[string]any{
 			"node_id":          s.Config.NodeID,
 			"uptime_s":         int64(time.Since(s.startTime).Seconds()),
-			"total_tgt_issued": atomic.LoadUint32(&s.nextSeq),
+			"total_tgt_issued": atomic.LoadUint32(&s.tgtIssued),
 			"total_auth_fail":  0,
 			"thread_pool_size": s.Config.ThreadPoolSize,
 			"thread_pool_busy": 0,
@@ -67,20 +67,20 @@ func (s *Service) runWebUI() {
 				continue
 			}
 			if c.CertPath == "" {
-				log.Warnf("[AS] webui cert not found remote=%s client=%s reason=empty_path", r.RemoteAddr, id)
+				log.Warnf("[AS] webui cert not found client=%s remote=%s", id, r.RemoteAddr)
 				http.NotFound(w, r)
 				return
 			}
 			cert, err := krb.CertLoad(c.CertPath)
 			if err != nil {
-				log.Warnf("[AS] webui cert load failed remote=%s client=%s path=%s err=%v", r.RemoteAddr, id, c.CertPath, err)
+				log.Warnf("[AS] webui cert load failed client=%s path=%s err=%v", id, c.CertPath, err)
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			writeJSONResponse(w, r, "[AS]", "/api/cert/", cert)
+			writeJSONResponse(w, r, "[AS]", "/api/cert", cert)
 			return
 		}
-		log.Warnf("[AS] webui cert not found remote=%s client=%s", r.RemoteAddr, id)
+		log.Warnf("[AS] webui cert not found client=%s remote=%s", id, r.RemoteAddr)
 		http.NotFound(w, r)
 	})
 	s.httpServer = &http.Server{
@@ -96,7 +96,7 @@ func (s *Service) runWebUI() {
 
 func writeJSONResponse(w http.ResponseWriter, r *http.Request, component string, route string, payload any) {
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		log.Errorf("%s webui response encode failed route=%s remote=%s err=%v", component, route, r.RemoteAddr, err)
+		log.Errorf("%s webui encode failed route=%s remote=%s err=%v", component, route, r.RemoteAddr, err)
 		return
 	}
 	log.Infof("%s webui response sent route=%s remote=%s", component, route, r.RemoteAddr)

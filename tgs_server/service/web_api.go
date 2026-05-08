@@ -17,7 +17,7 @@ func (s *Service) runWebUI() {
 		writeJSONResponse(w, r, "[TGS]", "/api/status", map[string]any{
 			"node_id":               s.Config.NodeID,
 			"uptime_s":              int64(time.Since(s.startTime).Seconds()),
-			"total_ticket_v_issued": atomic.LoadUint32(&s.nextSeq),
+			"total_ticket_v_issued": atomic.LoadUint32(&s.ticketVIssued),
 			"total_auth_fail":       0,
 		})
 	})
@@ -41,7 +41,7 @@ func (s *Service) runWebUI() {
 
 func writeJSONResponse(w http.ResponseWriter, r *http.Request, component string, route string, payload any) {
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		log.Errorf("%s webui response encode failed route=%s remote=%s err=%v", component, route, r.RemoteAddr, err)
+		log.Errorf("%s webui encode failed route=%s remote=%s err=%v", component, route, r.RemoteAddr, err)
 		return
 	}
 	log.Infof("%s webui response sent route=%s remote=%s", component, route, r.RemoteAddr)

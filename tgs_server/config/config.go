@@ -82,7 +82,7 @@ func LoadConfig(path string) (*Config, error) {
 		log.Errorf("[TGS] validate config failed path=%s err=%v", path, err)
 		return nil, fmt.Errorf("validate config %q: %w", path, err)
 	}
-	log.Infof("[TGS] config loaded path=%s node_id=%s listen=%s:%d webui=%s:%d services=%d", path, cfg.NodeID, cfg.ListenHost, cfg.ListenPort, cfg.WebUIHost, cfg.WebUIPort, len(cfg.ServiceDB))
+	log.Infof("[TGS] config loaded node_id=%s listen=%s:%d webui=%s:%d services=%d", cfg.NodeID, cfg.ListenHost, cfg.ListenPort, cfg.WebUIHost, cfg.WebUIPort, len(cfg.ServiceDB))
 	return &cfg, nil
 }
 
@@ -165,9 +165,5 @@ func ensureFileDir(path string) {
 	if dir == "." || dir == "" {
 		return
 	}
-	if err := krb.EnsureDir(dir); err != nil {
-		log.Warnf("[TGS] ensure config directory failed path=%s dir=%s err=%v", path, dir, err)
-		return
-	}
-	log.Debugf("[TGS] config directory ready path=%s dir=%s", path, dir)
+	_ = krb.EnsureDir(dir)
 }
