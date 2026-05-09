@@ -9,10 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatedier/golib/log"
-
 	cryptoutil "security-project/common/crypto"
 	"security-project/common/krb"
+	"security-project/pkg/utils/log"
 	"security-project/tgs_server/config"
 )
 

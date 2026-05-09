@@ -9,9 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatedier/golib/log"
-
 	"security-project/common/krb"
+	"security-project/pkg/utils/log"
 )
 
 func (s *Service) runWebUI() {

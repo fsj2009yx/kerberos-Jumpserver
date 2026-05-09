@@ -12,3 +12,4 @@ v_cert.json
 client/certs
 client/keys
 certs
+*.log
