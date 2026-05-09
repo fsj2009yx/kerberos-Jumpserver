@@ -9,11 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatedier/golib/log"
-
 	"security-project/as_server/config"
 	cryptoutil "security-project/common/crypto"
 	"security-project/common/krb"
+	"security-project/pkg/utils/log"
 )
 
 type Service struct {

@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fatedier/golib/log"
-
 	"security-project/common/krb"
+	"security-project/pkg/utils/log"
 )
 
 const DefaultPath = "tgs_server/config.json"
