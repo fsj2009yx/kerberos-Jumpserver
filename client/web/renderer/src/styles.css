@@ -234,6 +234,13 @@ body {
   gap: 12px;
 }
 
+.terminal-status-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .terminal-status {
   font-size: 13px;
   font-weight: 600;
@@ -258,33 +265,12 @@ body {
   color: #8a1c1c;
 }
 
-.terminal-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.terminal-button {
-  border: 1px solid var(--accent);
-  background: transparent;
-  color: var(--accent);
-  padding: 7px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.terminal-button:disabled {
-  opacity: 0.7;
-  cursor: wait;
-}
-
-.terminal-error {
+.terminal-error-inline {
   color: #8a1c1c;
   background: rgba(155, 28, 28, 0.1);
   border: 1px solid rgba(155, 28, 28, 0.25);
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
   font-size: 12px;
 }
 

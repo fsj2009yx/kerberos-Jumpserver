@@ -28,7 +28,6 @@ export default function Logs() {
 					timestamp: data.timestamp,
 					message: data.message,
 				};
-                console.log(entry)
 				// Prepend newest logs so they show at the top.
 				setLogs((prev) => [entry, ...prev]);
 			} catch (e) {
