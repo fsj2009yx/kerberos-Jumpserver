@@ -9,3 +9,4 @@ __pycache__/
 *dist/
 v_priv.json
 v_cert.json
+*.log
