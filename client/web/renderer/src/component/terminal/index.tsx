@@ -9,9 +9,10 @@ const WS_PTY_URL = "ws://127.0.0.1:9883/ws/pty";
 
 type TerminalViewProps = {
 	isVisible?: boolean;
+	isAuthenticated: boolean;
 };
 
-const TerminalView = ({ isVisible = true }: TerminalViewProps): JSX.Element => {
+const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps): JSX.Element => {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const terminalRef = useRef<Terminal | null>(null);
 	const fitAddonRef = useRef<FitAddon | null>(null);
@@ -20,7 +21,6 @@ const TerminalView = ({ isVisible = true }: TerminalViewProps): JSX.Element => {
 
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
-	const [connectionSeed, setConnectionSeed] = useState(0);
 
 	const statusLabel = useMemo(() => {
 		switch (status) {
@@ -35,8 +35,18 @@ const TerminalView = ({ isVisible = true }: TerminalViewProps): JSX.Element => {
 		}
 	}, [status]);
 
+	const focusTerminal = (): void => {
+		terminalRef.current?.focus();
+	};
+
 	useEffect(() => {
-		if (!containerRef.current) {
+		if (!containerRef.current || !isAuthenticated) {
+			if (!isAuthenticated) {
+				setStatus("disconnected");
+				setErrorMessage("Login required to open terminal.");
+				sessionIdRef.current = null;
+				pendingInputRef.current = [];
+			}
 			return undefined;
 		}
 
@@ -181,7 +191,7 @@ const TerminalView = ({ isVisible = true }: TerminalViewProps): JSX.Element => {
 			fitAddonRef.current = null;
 			terminalRef.current = null;
 		};
-	}, [connectionSeed]);
+	}, [isAuthenticated]);
 
 	useEffect(() => {
 		if (!isVisible) {
@@ -202,20 +212,21 @@ const TerminalView = ({ isVisible = true }: TerminalViewProps): JSX.Element => {
 	return (
 		<div className="terminal-shell">
 			<div className="terminal-toolbar">
-				<div className={`terminal-status status-${status}`}>{statusLabel}</div>
-				<div className="terminal-actions">
-					<button
-						className="terminal-button"
-						type="button"
-						onClick={() => setConnectionSeed((value) => value + 1)}
-						disabled={status === "connecting"}
-					>
-						Reconnect
-					</button>
+				<div className="terminal-status-group">
+					<div className={`terminal-status status-${status}`}>{statusLabel}</div>
+					{errorMessage ? (
+						<div className="terminal-error-inline">{errorMessage}</div>
+					) : null}
 				</div>
 			</div>
-			{errorMessage ? <div className="terminal-error">{errorMessage}</div> : null}
-			<div className="terminal-body" ref={containerRef} />
+			<div
+				className="terminal-body"
+				ref={containerRef}
+				tabIndex={0}
+				onMouseDown={focusTerminal}
+				onTouchStart={focusTerminal}
+				onFocus={focusTerminal}
+			/>
 		</div>
 	);
 };

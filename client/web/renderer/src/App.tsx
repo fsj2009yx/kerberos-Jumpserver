@@ -141,7 +141,7 @@ const App = (): JSX.Element => {
             ))
           )}
           <div className={`terminal-panel${showTerminal ? " is-active" : ""}`}>
-            <Terminal isVisible={showTerminal} />
+            <Terminal isVisible={showTerminal} isAuthenticated={isAuthenticated} />
           </div>
         </section>
       </main>

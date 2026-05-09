@@ -363,7 +363,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			log.Warnf("[V] pty input write failed client=%s payload_bytes=%d err=%v", current.IDClient, len(plain.Payload), err)
 			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("pty write failed")), krb.ErrorFromCode(krb.ErrSocketSend)
 		}
-		out := append([]byte("echo: "), plain.Payload...)
+		out := []byte{}
 		log.Infof("[V] pty input accepted client=%s pty_session_id=%d payload_bytes=%d", current.IDClient, current.PtySessionID, len(plain.Payload))
 		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, out), nil
 	case ptyOpResize:
@@ -381,7 +381,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventError, current.PtySessionID, -1, []byte("resize failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
 		}
 		log.Infof("[V] pty resized client=%s pty_session_id=%d cols=%d rows=%d", current.IDClient, current.PtySessionID, cols, rows)
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, []byte("resize ok")), nil
+		return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, []byte("")), nil
+		// return krb.MsgApp, s.buildAPPRep(current, respSeq, ptyEventOutput, current.PtySessionID, -1, []byte("resize ok")), nil
 	case ptyOpSignal:
 		if current.PTY == nil {
 			log.Warnf("[V] pty signal rejected not open client=%s", current.IDClient)

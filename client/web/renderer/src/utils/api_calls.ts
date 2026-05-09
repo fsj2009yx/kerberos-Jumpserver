@@ -23,12 +23,16 @@ export const login = async (username: string, password: string): Promise<LoginRe
   if (password.length != 8) {
     throw new Error("Password has to be length of 8")
   }
+  const form = new URLSearchParams({
+    username,
+    password
+  });
   const response = await fetch(`${API_BASE_URL}/api/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
     },
-    body: JSON.stringify({ username, password })
+    body: form.toString()
   });
 
   const data = (await response.json()) as LoginResult;
