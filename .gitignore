@@ -7,3 +7,5 @@ __pycache__/
 .gocache/
 *node_modules/
 *dist/
+v_priv.json
+v_cert.json

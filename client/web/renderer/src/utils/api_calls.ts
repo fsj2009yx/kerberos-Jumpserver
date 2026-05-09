@@ -20,16 +20,15 @@ const API_BASE_URL = "http://127.0.0.1:9883";
 export const getLogsUrl = (): string => `${API_BASE_URL}/api/logs`;
 
 export const login = async (username: string, password: string): Promise<LoginResult> => {
-  const form = new URLSearchParams({
-    username,
-    password
-  });
+  if (password.length != 8) {
+    throw new Error("Password has to be length of 8")
+  }
   const response = await fetch(`${API_BASE_URL}/api/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
     },
-    body: form.toString()
+    body: JSON.stringify({ username, password })
   });
 
   const data = (await response.json()) as LoginResult;
