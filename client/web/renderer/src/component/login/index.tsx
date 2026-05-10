@@ -47,6 +47,8 @@ const Login = ({ error, onLogin }: LoginProps): JSX.Element => {
 					type="password"
 					autoComplete="current-password"
 					value={password}
+					minLength={8}
+					maxLength={8}
 					onChange={(event) => setPassword(event.target.value)}
 					required
 					disabled={isSubmitting}
