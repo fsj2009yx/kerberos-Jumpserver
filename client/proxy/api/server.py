@@ -220,12 +220,24 @@ async def drain_available_pty_events(websocket: WebSocket, max_frames: int = 8):
         await send_pty_event(websocket, event)
 
 
+async def pty_output_pump(websocket: WebSocket, session_id_ref: Dict[str, Optional[str]]):
+    """Continuously drain PTY output for an active session."""
+    while True:
+        if not session_id_ref.get("session_id"):
+            await asyncio.sleep(0.05)
+            continue
+        await drain_available_pty_events(websocket)
+        await asyncio.sleep(0.02)
+
+
 @app.websocket("/ws/pty")
 async def websocket_pty(websocket: WebSocket):
     """PTY长连接会话"""
     await websocket.accept()
-    
+
     session_id = None
+    session_id_ref: Dict[str, Optional[str]] = {"session_id": None}
+    output_task = asyncio.create_task(pty_output_pump(websocket, session_id_ref))
     try:
         while True:
             data = await websocket.receive_json()
@@ -251,10 +263,10 @@ async def websocket_pty(websocket: WebSocket):
                 result = client_app_send_frame(runtime, config, 0x01, 0, payload, {PTY_EVENT_OPEN_OK, PTY_EVENT_ERROR}, incidental)
                 if result:
                     session_id = str(result.pty_session_id)
+                    session_id_ref["session_id"] = session_id
                     pty_sessions[session_id] = websocket
                     await forward_incidental_events(websocket, incidental)
                     await send_pty_event(websocket, result)
-                    await drain_available_pty_events(websocket)
                 else:
                     await forward_incidental_events(websocket, incidental)
                     await websocket.send_json({
@@ -275,7 +287,6 @@ async def websocket_pty(websocket: WebSocket):
                     await forward_incidental_events(websocket, incidental)
                     if result:
                         await send_pty_event(websocket, result)
-                        await drain_available_pty_events(websocket)
             
             elif op == 'resize':
                 # 窗口调整
@@ -318,15 +329,21 @@ async def websocket_pty(websocket: WebSocket):
                         await send_pty_event(websocket, result)
                     if session_id in pty_sessions:
                         del pty_sessions[session_id]
+                    session_id_ref["session_id"] = None
                     break
     
     except WebSocketDisconnect:
         if session_id and session_id in pty_sessions:
             del pty_sessions[session_id]
+            session_id_ref["session_id"] = None
     except Exception as e:
         if session_id and session_id in pty_sessions:
             del pty_sessions[session_id]
+            session_id_ref["session_id"] = None
         await websocket.send_json({
             'event': 'error',
             'message': str(e)
         })
+    finally:
+        if output_task:
+            output_task.cancel()
