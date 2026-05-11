@@ -77,3 +77,33 @@
 2026-05-11 19:18:09.677 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:52687 msg_type=6 seq=1 payload_bytes=20
 2026-05-11 19:18:09.677 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:52687 client=CLIENT_1 seq=1
 2026-05-11 19:18:39.683 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:52687
+2026-05-11 19:26:44.334 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:53524
+2026-05-11 19:26:44.819 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:53524 msg_type=5 seq=1 payload_bytes=96 authed=false
+2026-05-11 19:26:44.819 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778527603 adc=2130706433
+2026-05-11 19:26:44.819 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:53524 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:26:44.819 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:53524 client=CLIENT_1 seq=1
+2026-05-11 19:27:14.819 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:53524
+2026-05-11 19:47:37.479 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:54528
+2026-05-11 19:47:38.032 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:54528 msg_type=5 seq=5 payload_bytes=96 authed=false
+2026-05-11 19:47:38.032 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778528856 adc=2130706433
+2026-05-11 19:47:38.032 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:54528 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:47:38.032 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:54528 client=CLIENT_1 seq=5
+2026-05-11 19:47:54.156 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:54528
+2026-05-11 19:47:56.975 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:52931
+2026-05-11 19:47:57.515 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:52931 msg_type=5 seq=5 payload_bytes=96 authed=false
+2026-05-11 19:47:57.515 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778528876 adc=2130706433
+2026-05-11 19:47:57.515 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:52931 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:47:57.515 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:52931 client=CLIENT_1 seq=5
+2026-05-11 19:48:24.228 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:52931
+2026-05-11 19:51:49.197 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:63072
+2026-05-11 19:51:49.782 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:63072 msg_type=5 seq=5 payload_bytes=96 authed=false
+2026-05-11 19:51:49.782 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778529108 adc=2130706433
+2026-05-11 19:51:49.782 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:63072 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:51:49.782 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:63072 client=CLIENT_1 seq=5
+2026-05-11 19:52:07.031 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:63072
+2026-05-11 19:52:09.822 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:63083
+2026-05-11 19:52:10.368 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:63083 msg_type=5 seq=5 payload_bytes=96 authed=false
+2026-05-11 19:52:10.368 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778529128 adc=2130706433
+2026-05-11 19:52:10.368 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:63083 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:52:10.368 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:63083 client=CLIENT_1 seq=5
+2026-05-11 19:52:40.368 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:63083
