@@ -63,6 +63,26 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def root():
+    """根路径 - 返回API文档"""
+    return {
+        "title": "Kerberos Client API",
+        "version": "1.0",
+        "endpoints": {
+            "POST /api/login": "Kerberos三阶段认证登录",
+            "GET /api/state": "获取客户端状态",
+            "GET /api/cert": "获取客户端证书",
+            "GET /api/logs": "SSE实时日志流",
+            "WS /ws/pty": "PTY终端会话"
+        },
+        "login_example": {
+            "username": "CLIENT_1",
+            "password": "password"
+        }
+    }
+
+
 @app.post("/api/login")
 async def login(username: str = Form(...), password: str = Form(...)):
     """触发Kerberos三阶段认证"""
@@ -95,10 +115,14 @@ async def login(username: str = Form(...), password: str = Form(...)):
         return {"state": runtime.state, "error": "AP phase failed"}
     runtime.logs.append(f"Login completed for {username}")
     
+    import uuid
+    runtime.session_id = str(uuid.uuid4())
+    
     return {
         "state": runtime.state,
         "tgt_expire": runtime.bundle.tgt_expire,
-        "tv_expire": runtime.bundle.tv_expire
+        "tv_expire": runtime.bundle.tv_expire,
+        "session_id": runtime.session_id
     }
 
 
@@ -125,7 +149,7 @@ async def get_cert():
 
 @app.get("/api/logs")
 async def get_logs():
-    """SSE实时日志流"""
+    """SSE实时日志流 - 通信封包记录(实时回传 WEBUI)"""
     async def log_stream():
         last_index = 0
         while True:
@@ -133,7 +157,15 @@ async def get_logs():
             while last_index < len(runtime.logs):
                 log_entry = runtime.logs[last_index]
                 last_index += 1
-                yield f"data: {json.dumps({'timestamp': datetime.now().isoformat(), 'message': log_entry})}\n\n"
+                
+                # 检查是否是 PacketLog 对象（新格式）
+                if hasattr(log_entry, 'to_dict'):
+                    # 按照设计文档格式输出完整的数据包信息
+                    packet_dict = log_entry.to_dict()
+                    yield f"data: {json.dumps(packet_dict)}\n\n"
+                else:
+                    # 旧格式的日志字符串
+                    yield f"data: {json.dumps({'message': log_entry})}\n\n"
             
             await asyncio.sleep(0.1)
     return StreamingResponse(log_stream(), media_type="text/event-stream")
@@ -142,6 +174,8 @@ async def get_logs():
 # PTY会话管理
 pty_sessions: Dict[str, WebSocket] = {}
 
+
+import base64
 
 async def send_pty_event(websocket: WebSocket, event):
     """把V服务器的APP_REP事件转成前端WebSocket事件。"""
@@ -152,10 +186,11 @@ async def send_pty_event(websocket: WebSocket, event):
             'session_id': session_id
         })
     elif event.pty_event == PTY_EVENT_OUTPUT:
+        # 按照设计文档：Client -> Web 的 data 字段需要 base64 编码
         await websocket.send_json({
             'event': 'output',
             'session_id': session_id,
-            'data': event.payload.decode('utf-8', errors='ignore')
+            'data': base64.b64encode(event.payload).decode('utf-8')
         })
     elif event.pty_event == PTY_EVENT_EXIT:
         await websocket.send_json({
@@ -164,10 +199,11 @@ async def send_pty_event(websocket: WebSocket, event):
             'exit_code': event.exit_code
         })
     elif event.pty_event == PTY_EVENT_ERROR:
+        # 按照设计文档：error 的 data 字段需要 base64 编码
         await websocket.send_json({
             'event': 'error',
             'session_id': session_id,
-            'message': event.payload.decode('utf-8', errors='ignore')
+            'data': base64.b64encode(event.payload).decode('utf-8')
         })
 
 
@@ -227,12 +263,13 @@ async def websocket_pty(websocket: WebSocket):
                     })
             
             elif op == 'input':
-                # 输入数据
+                # 输入数据 - 按照设计文档：Web -> Client 的 data 字段是 base64 编码
                 session_id = data.get('session_id')
                 input_data = data.get('data', '')
                 
                 if session_id and input_data:
-                    payload = input_data.encode()
+                    # base64 解码
+                    payload = base64.b64decode(input_data)
                     incidental = []
                     result = client_app_send_frame(runtime, config, 0x02, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
                     await forward_incidental_events(websocket, incidental)

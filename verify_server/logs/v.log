@@ -1,0 +1,79 @@
+2026-05-11 19:05:35.110 [I] [cmd/main.go:16] [V] process starting config=config.json
+2026-05-11 19:05:35.127 [I] [service/service.go:44] [V] initializing service config=config.json
+2026-05-11 19:05:35.127 [I] [config/config.go:49] [V] loading config path=config.json
+2026-05-11 19:05:35.130 [I] [config/config.go:64] [V] config loaded node_id=verify_server listen=0.0.0.0:8883 webui=0.0.0.0:9885 clients=4
+2026-05-11 19:05:35.131 [E] [service/service.go:57] [V] load private key failed path=./keys/v_priv.json err=open ./keys/v_priv.json: The system cannot find the file specified.
+2026-05-11 19:06:08.317 [I] [cmd/main.go:16] [V] process starting config=config.json
+2026-05-11 19:06:08.325 [I] [service/service.go:44] [V] initializing service config=config.json
+2026-05-11 19:06:08.326 [I] [config/config.go:49] [V] loading config path=config.json
+2026-05-11 19:06:08.326 [I] [config/config.go:64] [V] config loaded node_id=verify_server listen=0.0.0.0:8883 webui=0.0.0.0:9885 clients=4
+2026-05-11 19:06:08.327 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_1 path=./certs/client1_cert.json err=open ./certs/client1_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:08.327 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_2 path=./certs/client2_cert.json err=open ./certs/client2_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:08.327 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_3 path=./certs/client3_cert.json err=open ./certs/client3_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:08.327 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_4 path=./certs/client4_cert.json err=open ./certs/client4_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:08.327 [I] [service/service.go:79] [V] service initialized node_id=verify_server clients=4 certs=0 pty_shell=/bin/sh
+2026-05-11 19:06:08.327 [I] [service/service.go:85] [V] starting webui addr=0.0.0.0:9885
+2026-05-11 19:06:08.328 [I] [service/web_api.go:53] [V] webui listening addr=0.0.0.0:9885
+2026-05-11 19:06:08.332 [I] [service/service.go:95] [V] listening addr=0.0.0.0:8883
+2026-05-11 19:06:46.542 [I] [cmd/main.go:16] [V] process starting config=config.json
+2026-05-11 19:06:46.550 [I] [service/service.go:44] [V] initializing service config=config.json
+2026-05-11 19:06:46.550 [I] [config/config.go:49] [V] loading config path=config.json
+2026-05-11 19:06:46.550 [I] [config/config.go:64] [V] config loaded node_id=verify_server listen=0.0.0.0:8883 webui=0.0.0.0:9885 clients=4
+2026-05-11 19:06:46.551 [I] [service/service.go:77] [V] client cert loaded client=CLIENT_1 path=./certs/client1_cert.json
+2026-05-11 19:06:46.551 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_2 path=./certs/client2_cert.json err=open ./certs/client2_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:46.552 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_3 path=./certs/client3_cert.json err=open ./certs/client3_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:46.552 [W] [service/service.go:73] [V] client cert load failed client=CLIENT_4 path=./certs/client4_cert.json err=open ./certs/client4_cert.json: The system cannot find the file specified.
+2026-05-11 19:06:46.552 [I] [service/service.go:79] [V] service initialized node_id=verify_server clients=4 certs=1 pty_shell=/bin/sh
+2026-05-11 19:06:46.552 [I] [service/service.go:85] [V] starting webui addr=0.0.0.0:9885
+2026-05-11 19:06:46.552 [I] [service/web_api.go:53] [V] webui listening addr=0.0.0.0:9885
+2026-05-11 19:06:46.555 [I] [service/service.go:95] [V] listening addr=0.0.0.0:8883
+2026-05-11 19:07:00.325 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:54857
+2026-05-11 19:07:00.326 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:54857 msg_type=1 seq=1 payload_bytes=4 authed=false
+2026-05-11 19:07:00.326 [W] [service/service.go:216] [V] invalid message type remote=127.0.0.1:54857 msg_type=1 seq=1
+2026-05-11 19:07:00.326 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:54857 msg_type=255 seq=1 payload_bytes=4
+2026-05-11 19:07:00.327 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:54857
+2026-05-11 19:07:50.430 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:54889
+2026-05-11 19:07:50.432 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:54889 msg_type=1 seq=1 payload_bytes=4 authed=false
+2026-05-11 19:07:50.432 [W] [service/service.go:216] [V] invalid message type remote=127.0.0.1:54889 msg_type=1 seq=1
+2026-05-11 19:07:50.432 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:54889 msg_type=255 seq=1 payload_bytes=4
+2026-05-11 19:07:50.432 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:54889
+2026-05-11 19:09:33.290 [I] [cmd/main.go:16] [V] process starting config=config.json
+2026-05-11 19:09:33.298 [I] [service/service.go:44] [V] initializing service config=config.json
+2026-05-11 19:09:33.298 [I] [config/config.go:49] [V] loading config path=config.json
+2026-05-11 19:09:33.299 [I] [config/config.go:64] [V] config loaded node_id=verify_server listen=0.0.0.0:8883 webui=0.0.0.0:9885 clients=4
+2026-05-11 19:09:33.300 [I] [service/service.go:77] [V] client cert loaded client=CLIENT_1 path=./certs/client1_cert.json
+2026-05-11 19:09:33.301 [I] [service/service.go:77] [V] client cert loaded client=CLIENT_2 path=./certs/client2_cert.json
+2026-05-11 19:09:33.301 [I] [service/service.go:77] [V] client cert loaded client=CLIENT_3 path=./certs/client3_cert.json
+2026-05-11 19:09:33.302 [I] [service/service.go:77] [V] client cert loaded client=CLIENT_4 path=./certs/client4_cert.json
+2026-05-11 19:09:33.302 [I] [service/service.go:79] [V] service initialized node_id=verify_server clients=4 certs=4 pty_shell=/bin/sh
+2026-05-11 19:09:33.302 [I] [service/service.go:85] [V] starting webui addr=0.0.0.0:9885
+2026-05-11 19:09:33.302 [I] [service/web_api.go:53] [V] webui listening addr=0.0.0.0:9885
+2026-05-11 19:09:33.304 [I] [service/service.go:95] [V] listening addr=0.0.0.0:8883
+2026-05-11 19:09:43.869 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:64132
+2026-05-11 19:09:43.893 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:64132 msg_type=1 seq=1 payload_bytes=4 authed=false
+2026-05-11 19:09:43.893 [W] [service/service.go:216] [V] invalid message type remote=127.0.0.1:64132 msg_type=1 seq=1
+2026-05-11 19:09:43.893 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:64132 msg_type=255 seq=1 payload_bytes=4
+2026-05-11 19:09:43.904 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:64132
+2026-05-11 19:10:34.271 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:64161
+2026-05-11 19:10:34.271 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:64161 msg_type=1 seq=1 payload_bytes=4 authed=false
+2026-05-11 19:10:34.271 [W] [service/service.go:216] [V] invalid message type remote=127.0.0.1:64161 msg_type=1 seq=1
+2026-05-11 19:10:34.271 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:64161 msg_type=255 seq=1 payload_bytes=4
+2026-05-11 19:10:34.272 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:64161
+2026-05-11 19:13:32.735 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:57067
+2026-05-11 19:13:33.230 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:57067 msg_type=5 seq=1 payload_bytes=96 authed=false
+2026-05-11 19:13:33.230 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778526811 adc=2130706433
+2026-05-11 19:13:33.231 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:57067 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:13:33.231 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:57067 client=CLIENT_1 seq=1
+2026-05-11 19:14:03.232 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:57067
+2026-05-11 19:16:08.542 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:54670
+2026-05-11 19:16:09.027 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:54670 msg_type=5 seq=1 payload_bytes=96 authed=false
+2026-05-11 19:16:09.027 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778526967 adc=2130706433
+2026-05-11 19:16:09.027 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:54670 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:16:09.027 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:54670 client=CLIENT_1 seq=1
+2026-05-11 19:16:39.029 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:54670
+2026-05-11 19:18:09.648 [I] [service/service.go:102] [V] accepted connection remote=127.0.0.1:52687
+2026-05-11 19:18:09.677 [I] [service/service.go:161] [V] packet received remote=127.0.0.1:52687 msg_type=5 seq=1 payload_bytes=96 authed=false
+2026-05-11 19:18:09.677 [I] [service/service.go:269] [V] session created client=CLIENT_1 expire_at=1778527089 adc=2130706433
+2026-05-11 19:18:09.677 [I] [service/service.go:137] [V] packet sent remote=127.0.0.1:52687 msg_type=6 seq=1 payload_bytes=20
+2026-05-11 19:18:09.677 [I] [service/service.go:185] [V] AP authentication accepted remote=127.0.0.1:52687 client=CLIENT_1 seq=1
+2026-05-11 19:18:39.683 [I] [service/service.go:124] [V] connection closed remote=127.0.0.1:52687

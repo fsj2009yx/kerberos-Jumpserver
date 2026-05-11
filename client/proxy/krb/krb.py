@@ -11,9 +11,28 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from krb.msg import *
+from krb.logger import log_packet as krb_log_packet
 from crypto.des import encrypt_des_cbc, decrypt_des_cbc
 from crypto.sha256 import sha256
 from crypto.rsa import rsa_sign
+
+# 导入调试模块
+try:
+    from debug.debug import (
+        log_info, log_debug, log_error, log_packet, log_state_change,
+        log_encryption, log_decryption, hexdump, validate_packet_structure
+    )
+except ImportError:
+    # 如果调试模块不存在，定义空函数
+    def log_info(*args, **kwargs): pass
+    def log_debug(*args, **kwargs): pass
+    def log_error(*args, **kwargs): pass
+    def log_packet(*args, **kwargs): pass
+    def log_state_change(*args, **kwargs): pass
+    def log_encryption(*args, **kwargs): pass
+    def log_decryption(*args, **kwargs): pass
+    def hexdump(*args, **kwargs): pass
+    def validate_packet_structure(*args, **kwargs): return True
 
 
 # 错误码定义
@@ -94,35 +113,83 @@ def krb_recv_full(sock: socket.socket, need: int) -> bytes:
     return received
 
 
-def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes):
+def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes, 
+                runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1"):
     """发送一个Kerberos协议包"""
     timestamp = int(time.time())
     packet = krb_pack(msg_type, seq_num, timestamp, payload)
+    
+    # 添加调试日志
+    log_info(f"Sending packet - MsgType: 0x{msg_type:02X}, SeqNum: {seq_num}, PayloadLen: {len(payload)}")
+    log_packet({
+        'magic': 0x4B45,
+        'version': 0x01,
+        'msg_type': msg_type,
+        'total_len': len(payload),
+        'seq_num': seq_num,
+        'timestamp': timestamp
+    }, payload)
+    
+    # 使用新的日志格式记录完整数据包
+    if runtime:
+        msg_type_names = {0x01: "AS_REQ", 0x02: "AS_REP", 0x03: "TGS_REQ", 0x04: "TGS_REP", 
+                          0x05: "AP_REQ", 0x06: "AP_REP", 0x07: "APP_REQ", 0x08: "APP_REP"}
+        info = f"message{msg_type} Kerberos {msg_type_names.get(msg_type, 'Unknown')}"
+        krb_log_packet(runtime, src_addr, dst_addr, "KRB5", info, packet)
+    
     sock.sendall(packet)
 
 
-def recv_packet(sock: socket.socket) -> tuple[KerHeader, bytes]:
+def recv_packet(sock: socket.socket, runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1") -> tuple[KerHeader, bytes]:
     """接收一个Kerberos协议包"""
+    log_info("Waiting for response from server...")
+    
     header_raw = krb_recv_full(sock, 20)
+    log_debug(f"Received header: {header_raw.hex()}")
+    
     header = KerHeader.from_bytes(header_raw)
-
+    
+    # 添加调试日志
+    log_info(f"Received packet - MsgType: 0x{header.msg_type:02X}, SeqNum: {header.seq_num}, PayloadLen: {header.total_len}")
+    
     if header.magic != 0x4B45:
+        log_error(f"Response magic mismatch: expected 0x4B45, got 0x{header.magic:04X}")
         raise ValueError("Response magic mismatch")
 
     if header.msg_type == 0xff:
         error_data = krb_recv_full(sock, header.total_len)
         error_code = int.from_bytes(error_data, 'big', signed=True)
+        log_error(f"Server error code: {error_code}")
         raise RuntimeError(f"Server error: {error_code}")
 
     payload_raw = krb_recv_full(sock, header.total_len)
+    
+    # 记录完整数据包信息
+    log_packet({
+        'magic': header.magic,
+        'version': header.version,
+        'msg_type': header.msg_type,
+        'total_len': header.total_len,
+        'seq_num': header.seq_num,
+        'timestamp': header.timestamp
+    }, payload_raw)
+    
+    # 使用新的日志格式记录完整数据包
+    if runtime:
+        msg_type_names = {0x01: "AS_REQ", 0x02: "AS_REP", 0x03: "TGS_REQ", 0x04: "TGS_REP", 
+                          0x05: "AP_REQ", 0x06: "AP_REP", 0x07: "APP_REQ", 0x08: "APP_REP"}
+        info = f"message{header.msg_type} Kerberos {msg_type_names.get(header.msg_type, 'Unknown')}"
+        full_packet = header_raw + payload_raw
+        krb_log_packet(runtime, src_addr, dst_addr, "KRB5", info, full_packet)
+    
     return header, payload_raw
 
 
 def send_recv_packet(sock: socket.socket, msg_type: int, seq_num: int,
-                     payload: bytes) -> tuple[KerHeader, bytes]:
+                     payload: bytes, runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1") -> tuple[KerHeader, bytes]:
     """发送请求并接收响应"""
-    send_packet(sock, msg_type, seq_num, payload)
-    return recv_packet(sock)
+    send_packet(sock, msg_type, seq_num, payload, runtime, src_addr, dst_addr)
+    return recv_packet(sock, runtime, dst_addr, src_addr)
 
 
 def pack_as_req(id_client: str, id_tgs: str, ts1: int) -> bytes:
@@ -266,36 +333,65 @@ def client_app_recv_frame(rt: ClientRuntime, timeout: Optional[float] = None) ->
 
 def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: str) -> int:
     """AS阶段编排函数"""
+    log_info("=" * 70)
+    log_info("Starting AS phase...")
+    log_info(f"Username: {username}")
+    log_info(f"AS Address: {cfg.as_addr}")
+    
     try:
         # 创建socket连接
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        log_debug(f"Connecting to {cfg.as_addr}...")
         sock.connect(cfg.as_addr)
+        log_info("Connected to AS server")
         
         # 构造AS_REQ
         ts1 = int(time.time())
+        log_debug(f"Constructing AS_REQ - TS1: {ts1}")
         payload = pack_as_req(username, "TGS", ts1)
+        log_debug(f"AS_REQ payload length: {len(payload)} bytes")
         
         # AS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
-        send_packet(sock, 0x01, seq, payload)
-        header, resp_payload = recv_packet(sock)
+        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, "127.0.0.1", cfg.as_addr[0])
+        log_info("AS_REQ sent and AS_REP received")
         
         # 解密响应（password作为Kc）
         kc = password.encode().ljust(8)[:8]  # 确保8字节
+        log_debug(f"Kc (from password): {kc.hex()}")
+        
+        # 记录解密前的密文
+        log_debug(f"Encrypted AS_REP payload: {len(resp_payload)} bytes")
+        hexdump(resp_payload, "Encrypted AS_REP:")
+        
         as_rep = unpack_as_rep(resp_payload, kc)
         
         # 更新运行时状态
         rt.bundle.key_c_tgs = as_rep.key_c_tgs
         rt.bundle.ticket_tgs = as_rep.ticket_tgs
         rt.bundle.tgt_expire = as_rep.ts2 + as_rep.lifetime
+        
+        # 记录解密后的信息
+        log_info(f"AS_REP decoded:")
+        log_info(f"  Key_C_TGS: {as_rep.key_c_tgs.hex()}")
+        log_info(f"  Ticket_TGS length: {len(as_rep.ticket_tgs)} bytes")
+        log_info(f"  TS2: {as_rep.ts2}")
+        log_info(f"  Lifetime: {as_rep.lifetime}")
+        log_info(f"  TGT expires: {as_rep.ts2 + as_rep.lifetime}")
+        
+        log_state_change(rt.state, "STATE_AS_DONE")
         rt.state = "STATE_AS_DONE"
         rt.logs.append(f"AS phase complete for {username}")
         
         sock.close()
+        log_info("AS phase completed successfully")
+        log_info("=" * 70)
         return KRB_OK
         
     except Exception as e:
         fail_print = f"AS phase failed: {str(e)}"
+        log_error(fail_print)
+        log_state_change(rt.state, "STATE_ERROR")
         rt.state = "STATE_ERROR"
         print(fail_print)
         rt.logs.append(fail_print)
@@ -304,40 +400,70 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
 
 def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
     """TGS阶段编排函数"""
+    log_info("=" * 70)
+    log_info("Starting TGS phase...")
+    log_info(f"Target Service: {id_v}")
+    log_info(f"TGS Address: {cfg.tgs_addr}")
+    
     if rt.state != "STATE_AS_DONE":
+        log_error(f"TGS phase skipped - current state is {rt.state}, expected STATE_AS_DONE")
         return -1
     
     try:
         # 创建socket连接
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        log_debug(f"Connecting to {cfg.tgs_addr}...")
         sock.connect(cfg.tgs_addr)
+        log_info("Connected to TGS server")
         
         # 构造TGS_REQ
         ts3 = int(time.time())
+        log_debug(f"Constructing TGS_REQ - TS3: {ts3}, ID_V: {id_v}")
+        
         payload = pack_tgs_req(id_v, rt.bundle.ticket_tgs, rt.bundle.key_c_tgs,
                               cfg.client_id, cfg.ad_c, ts3)
+        log_debug(f"TGS_REQ payload length: {len(payload)} bytes")
+        log_debug(f"Using Key_C_TGS: {rt.bundle.key_c_tgs.hex()}")
+        log_debug(f"Ticket_TGS length: {len(rt.bundle.ticket_tgs)} bytes")
         
         # TGS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
-        send_packet(sock, 0x03, seq, payload)
-        header, resp_payload = recv_packet(sock)
+        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, "127.0.0.1", cfg.tgs_addr[0])
+        log_info("TGS_REQ sent and TGS_REP received")
         
         # 解密响应
+        log_debug(f"Encrypted TGS_REP payload: {len(resp_payload)} bytes")
+        hexdump(resp_payload, "Encrypted TGS_REP:")
+        
         tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)
         
         # 更新运行时状态
         rt.bundle.key_c_v = tgs_rep.key_c_v
         rt.bundle.ticket_v = tgs_rep.ticket_v
         rt.bundle.tv_expire = tgs_rep.ts4 + tgs_rep.lifetime
+        
+        # 记录解密后的信息
+        log_info(f"TGS_REP decoded:")
+        log_info(f"  Key_C_V: {tgs_rep.key_c_v.hex()}")
+        log_info(f"  Ticket_V length: {len(tgs_rep.ticket_v)} bytes")
+        log_info(f"  TS4: {tgs_rep.ts4}")
+        log_info(f"  Lifetime: {tgs_rep.lifetime}")
+        log_info(f"  Service Ticket expires: {tgs_rep.ts4 + tgs_rep.lifetime}")
+        
+        log_state_change(rt.state, "STATE_TGS_DONE")
         rt.state = "STATE_TGS_DONE"
         rt.logs.append(f"TGS phase complete for {cfg.client_id}, service={id_v}")
         
         sock.close()
+        log_info("TGS phase completed successfully")
+        log_info("=" * 70)
         return KRB_OK
         
     except Exception as e:
         rt.state = "STATE_ERROR"
         fail_print = f"TGS phase failed: {str(e)}"
+        log_error(fail_print)
+        log_state_change(rt.state, "STATE_ERROR")
         print(fail_print)
         rt.logs.append(fail_print)
         return -1
@@ -345,35 +471,58 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
 
 def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
     """AP阶段编排函数"""
+    log_info("=" * 70)
+    log_info("Starting AP phase...")
+    log_info(f"V Address: {cfg.v_addr}")
+    
     if rt.state != "STATE_TGS_DONE":
+        log_error(f"AP phase skipped - current state is {rt.state}, expected STATE_TGS_DONE")
         return -1
     
     sock = None
     try:
         # 创建socket连接
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        log_debug(f"Connecting to {cfg.v_addr}...")
         sock.connect(cfg.v_addr)
+        log_info("Connected to V server")
         
         # 构造AP_REQ
         ts5 = int(time.time())
+        log_debug(f"Constructing AP_REQ - TS5: {ts5}")
+        
         payload = pack_ap_req(rt.bundle.ticket_v, rt.bundle.key_c_v,
                              cfg.client_id, cfg.ad_c, ts5)
+        log_debug(f"AP_REQ payload length: {len(payload)} bytes")
+        log_debug(f"Using Key_C_V: {rt.bundle.key_c_v.hex()}")
+        log_debug(f"Ticket_V length: {len(rt.bundle.ticket_v)} bytes")
         
         # 发送前立即消费序号；即使服务端返回错误，也不能复用同一个SEQ。
         seq = rt.consume_seq()
-        send_packet(sock, 0x05, seq, payload)
-        header, resp_payload = recv_packet(sock)
+        log_debug(f"Using SEQ: {seq}")
+        
+        header, resp_payload = send_recv_packet(sock, 0x05, seq, payload, rt, "127.0.0.1", cfg.v_addr[0])
+        log_info("AP_REQ sent and AP_REP received")
         
         # 验证响应
+        log_debug(f"Encrypted AP_REP payload: {len(resp_payload)} bytes")
+        hexdump(resp_payload, "Encrypted AP_REP:")
+        
         verify_ap_rep(resp_payload, rt.bundle.key_c_v, ts5)
+        log_info(f"AP_REP TS verification passed (TS5+1 = {ts5 + 1})")
         
         # 更新运行时状态
+        log_state_change(rt.state, "STATE_V_CONNECTED")
         rt.state = "STATE_V_CONNECTED"
         
         # 保存socket用于后续业务通信；V 服务要求 AP 和 APP 在同一 TCP 连接上。
         rt.session_id = f"session_{ts5}"
         rt.v_sock = sock
+        log_info(f"Session ID: {rt.session_id}")
+        log_info("AP phase completed successfully - V connection established")
+        
         rt.logs.append(f"AP phase complete for {cfg.client_id}")
+        log_info("=" * 70)
         return KRB_OK
         
     except Exception as e:
@@ -383,6 +532,8 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
             pass
         rt.state = "STATE_ERROR"
         fail_print = f"AP phase failed: {str(e)}"
+        log_error(fail_print)
+        log_state_change(rt.state, "STATE_ERROR")
         print(fail_print)
         rt.logs.append(fail_print)
         return -1

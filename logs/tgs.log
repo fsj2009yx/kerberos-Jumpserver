@@ -1,0 +1,9 @@
+2026-05-11 19:51:22.643 [I] [cmd/main.go:16] [TGS] process starting config=tgs_server/config.json
+2026-05-11 19:51:22.660 [I] [service/service.go:27] [TGS] initializing service config=tgs_server/config.json
+2026-05-11 19:51:22.660 [I] [config/config.go:69] [TGS] loading config path=tgs_server/config.json
+2026-05-11 19:51:22.662 [I] [config/config.go:84] [TGS] config loaded node_id=TGS listen=0.0.0.0:8882 webui=0.0.0.0:9882 services=1
+2026-05-11 19:51:22.662 [I] [service/service.go:52] [TGS] service loaded service=verify_server addr=127.0.0.1:8883
+2026-05-11 19:51:22.662 [I] [service/service.go:54] [TGS] service initialized services=1 ticket_lifetime=28800
+2026-05-11 19:51:22.663 [I] [service/service.go:64] [TGS] starting webui addr=0.0.0.0:9882
+2026-05-11 19:51:22.663 [I] [service/web_api.go:36] [TGS] webui listening addr=0.0.0.0:9882
+2026-05-11 19:51:22.668 [I] [service/service.go:74] [TGS] listening addr=0.0.0.0:8882
