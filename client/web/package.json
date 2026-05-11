@@ -8,7 +8,20 @@
     "build": "tsc -p tsconfig.json && vite build --config renderer/vite.config.ts",
     "start": "npm run build && electron .",
     "dev": "vite --config renderer/vite.config.ts",
-    "preview": "vite preview --config renderer/vite.config.ts"
+    "preview": "vite preview --config renderer/vite.config.ts",
+    "dist": "electron-builder --win portable --publish never"
+  },
+  "build": {
+    "appId": "com.example.myapp",
+    "productName": "MyApp",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable"
+    }
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -27,6 +40,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.19",
     "electron": "^34.2.0",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.8.2",
