@@ -236,6 +236,13 @@ async def websocket_pty(websocket: WebSocket):
                 cols = data.get('cols', 80)
                 rows = data.get('rows', 24)
                 term = data.get('term', 'xterm')
+
+                if runtime.state != "STATE_V_CONNECTED":
+                    await websocket.send_json({
+                        'event': 'error',
+                        'message': f'PTY open failed: client not authenticated (state={runtime.state}).'
+                    })
+                    continue
                 
                 term_raw = term.encode()
                 payload = len(term_raw).to_bytes(2, 'big') + term_raw + cols.to_bytes(2, 'big') + rows.to_bytes(2, 'big')
@@ -248,6 +255,12 @@ async def websocket_pty(websocket: WebSocket):
                     await forward_incidental_events(websocket, incidental)
                     await send_pty_event(websocket, result)
                     await drain_available_pty_events(websocket)
+                else:
+                    await forward_incidental_events(websocket, incidental)
+                    await websocket.send_json({
+                        'event': 'error',
+                        'message': 'PTY open failed: no response from V server.'
+                    })
             
             elif op == 'input':
                 # 输入数据 - 按照设计文档：Web -> Client 的 data 字段是 base64 编码

@@ -29,7 +29,7 @@ const App = (): JSX.Element => {
   const [activeView, setActiveView] = useState<ViewKey>("login");
   const [message, setMessage] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(true); // useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // useState(false);
 
   const content = useMemo(() => viewContent[activeView], [activeView]);
   const loginLabel = isAuthenticated ? "Logout" : "Login";
@@ -141,7 +141,7 @@ const App = (): JSX.Element => {
             ))
           )}
           <div className={`terminal-panel${showTerminal ? " is-active" : ""}`}>
-            <Terminal isVisible={showTerminal} />
+            <Terminal isVisible={showTerminal} isAuthenticated={isAuthenticated} />
           </div>
         </section>
       </main>

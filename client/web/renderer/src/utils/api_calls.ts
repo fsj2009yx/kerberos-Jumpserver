@@ -20,6 +20,9 @@ const API_BASE_URL = "http://127.0.0.1:9883";
 export const getLogsUrl = (): string => `${API_BASE_URL}/api/logs`;
 
 export const login = async (username: string, password: string): Promise<LoginResult> => {
+  if (password.length != 8) {
+    throw new Error("Password has to be length of 8")
+  }
   const form = new URLSearchParams({
     username,
     password
