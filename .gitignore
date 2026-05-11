@@ -6,8 +6,11 @@
 __pycache__/
 .gocache/
 /as-server
+/as-server-linux
 /tgs-server
+/tgs-server-linux
 /v-server
+/v-server-linux
 /bin/
 *node_modules/
 *dist/

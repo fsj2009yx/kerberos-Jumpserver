@@ -9,7 +9,7 @@
     "start": "npm run build && electron .",
     "dev": "vite --config renderer/vite.config.ts",
     "preview": "vite preview --config renderer/vite.config.ts",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win portable --publish never"
   },
   "build": {
     "appId": "com.example.myapp",
