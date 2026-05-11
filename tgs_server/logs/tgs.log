@@ -1,0 +1,74 @@
+2026-05-11 19:05:23.051 [I] [cmd/main.go:16] [TGS] process starting config=config.json
+2026-05-11 19:05:23.072 [I] [service/service.go:27] [TGS] initializing service config=config.json
+2026-05-11 19:05:23.072 [I] [config/config.go:69] [TGS] loading config path=config.json
+2026-05-11 19:05:23.076 [I] [config/config.go:84] [TGS] config loaded node_id=TGS listen=0.0.0.0:8882 webui=0.0.0.0:9882 services=1
+2026-05-11 19:05:23.076 [I] [service/service.go:52] [TGS] service loaded service=verify_server addr=127.0.0.1:8883
+2026-05-11 19:05:23.076 [I] [service/service.go:54] [TGS] service initialized services=1 ticket_lifetime=28800
+2026-05-11 19:05:23.076 [I] [service/service.go:64] [TGS] starting webui addr=0.0.0.0:9882
+2026-05-11 19:05:23.076 [I] [service/web_api.go:36] [TGS] webui listening addr=0.0.0.0:9882
+2026-05-11 19:05:23.079 [I] [service/service.go:74] [TGS] listening addr=0.0.0.0:8882
+2026-05-11 19:07:00.322 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:54856
+2026-05-11 19:07:00.322 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:54856 msg_type=1 seq=1 payload_bytes=4
+2026-05-11 19:07:00.322 [W] [service/service.go:121] [TGS] invalid message type remote=127.0.0.1:54856 msg_type=1 code=-1003
+2026-05-11 19:07:00.322 [W] [service/service.go:243] [TGS] error response sent seq=1 code=-1003
+2026-05-11 19:07:00.322 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:54856
+2026-05-11 19:07:50.430 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:54888
+2026-05-11 19:07:50.430 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:54888 msg_type=1 seq=1 payload_bytes=4
+2026-05-11 19:07:50.430 [W] [service/service.go:121] [TGS] invalid message type remote=127.0.0.1:54888 msg_type=1 code=-1003
+2026-05-11 19:07:50.430 [W] [service/service.go:243] [TGS] error response sent seq=1 code=-1003
+2026-05-11 19:07:50.430 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:54888
+2026-05-11 19:09:24.250 [I] [cmd/main.go:16] [TGS] process starting config=config.json
+2026-05-11 19:09:24.257 [I] [service/service.go:27] [TGS] initializing service config=config.json
+2026-05-11 19:09:24.257 [I] [config/config.go:69] [TGS] loading config path=config.json
+2026-05-11 19:09:24.258 [I] [config/config.go:84] [TGS] config loaded node_id=TGS listen=0.0.0.0:8882 webui=0.0.0.0:9882 services=1
+2026-05-11 19:09:24.258 [I] [service/service.go:52] [TGS] service loaded service=verify_server addr=127.0.0.1:8883
+2026-05-11 19:09:24.258 [I] [service/service.go:54] [TGS] service initialized services=1 ticket_lifetime=28800
+2026-05-11 19:09:24.258 [I] [service/service.go:64] [TGS] starting webui addr=0.0.0.0:9882
+2026-05-11 19:09:24.258 [I] [service/web_api.go:36] [TGS] webui listening addr=0.0.0.0:9882
+2026-05-11 19:09:24.260 [I] [service/service.go:74] [TGS] listening addr=0.0.0.0:8882
+2026-05-11 19:09:43.867 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:64131
+2026-05-11 19:09:43.868 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:64131 msg_type=1 seq=1 payload_bytes=4
+2026-05-11 19:09:43.868 [W] [service/service.go:121] [TGS] invalid message type remote=127.0.0.1:64131 msg_type=1 code=-1003
+2026-05-11 19:09:43.868 [W] [service/service.go:243] [TGS] error response sent seq=1 code=-1003
+2026-05-11 19:09:43.868 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:64131
+2026-05-11 19:10:34.270 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:64160
+2026-05-11 19:10:34.270 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:64160 msg_type=1 seq=1 payload_bytes=4
+2026-05-11 19:10:34.270 [W] [service/service.go:121] [TGS] invalid message type remote=127.0.0.1:64160 msg_type=1 code=-1003
+2026-05-11 19:10:34.270 [W] [service/service.go:243] [TGS] error response sent seq=1 code=-1003
+2026-05-11 19:10:34.270 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:64160
+2026-05-11 19:13:31.377 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:57066
+2026-05-11 19:13:31.876 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:57066 msg_type=3 seq=1 payload_bytes=103
+2026-05-11 19:13:31.876 [I] [service/service.go:153] [TGS] TGS_REQ received id_v=verify_server seq=1 peer_adc=2130706433
+2026-05-11 19:13:31.877 [I] [service/service.go:233] [TGS] service ticket issued client=CLIENT_1 id_v=verify_server lifetime=28800
+2026-05-11 19:13:31.877 [I] [service/service.go:143] [TGS] TGS_REP sent remote=127.0.0.1:57066 seq=1 payload_bytes=108
+2026-05-11 19:13:31.877 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:57066
+2026-05-11 19:16:07.190 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:54669
+2026-05-11 19:16:07.693 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:54669 msg_type=3 seq=1 payload_bytes=103
+2026-05-11 19:16:07.693 [I] [service/service.go:153] [TGS] TGS_REQ received id_v=verify_server seq=1 peer_adc=2130706433
+2026-05-11 19:16:07.693 [I] [service/service.go:233] [TGS] service ticket issued client=CLIENT_1 id_v=verify_server lifetime=28800
+2026-05-11 19:16:07.693 [I] [service/service.go:143] [TGS] TGS_REP sent remote=127.0.0.1:54669 seq=1 payload_bytes=108
+2026-05-11 19:16:07.693 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:54669
+2026-05-11 19:18:09.562 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:52686
+2026-05-11 19:18:09.595 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:52686 msg_type=3 seq=1 payload_bytes=103
+2026-05-11 19:18:09.595 [I] [service/service.go:153] [TGS] TGS_REQ received id_v=verify_server seq=1 peer_adc=2130706433
+2026-05-11 19:18:09.595 [I] [service/service.go:233] [TGS] service ticket issued client=CLIENT_1 id_v=verify_server lifetime=28800
+2026-05-11 19:18:09.595 [I] [service/service.go:143] [TGS] TGS_REP sent remote=127.0.0.1:52686 seq=1 payload_bytes=108
+2026-05-11 19:18:09.596 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:52686
+2026-05-11 19:26:42.959 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:53513
+2026-05-11 19:26:43.450 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:53513 msg_type=3 seq=1 payload_bytes=103
+2026-05-11 19:26:43.450 [I] [service/service.go:153] [TGS] TGS_REQ received id_v=verify_server seq=1 peer_adc=2130706433
+2026-05-11 19:26:43.450 [I] [service/service.go:233] [TGS] service ticket issued client=CLIENT_1 id_v=verify_server lifetime=28800
+2026-05-11 19:26:43.450 [I] [service/service.go:143] [TGS] TGS_REP sent remote=127.0.0.1:53513 seq=1 payload_bytes=108
+2026-05-11 19:26:43.450 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:53513
+2026-05-11 19:47:35.992 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:54527
+2026-05-11 19:47:36.508 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:54527 msg_type=3 seq=1 payload_bytes=103
+2026-05-11 19:47:36.508 [I] [service/service.go:153] [TGS] TGS_REQ received id_v=verify_server seq=1 peer_adc=2130706433
+2026-05-11 19:47:36.508 [I] [service/service.go:233] [TGS] service ticket issued client=CLIENT_1 id_v=verify_server lifetime=28800
+2026-05-11 19:47:36.509 [I] [service/service.go:143] [TGS] TGS_REP sent remote=127.0.0.1:54527 seq=1 payload_bytes=108
+2026-05-11 19:47:36.509 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:54527
+2026-05-11 19:47:55.462 [I] [service/service.go:81] [TGS] accepted connection remote=127.0.0.1:52930
+2026-05-11 19:47:56.031 [I] [service/service.go:118] [TGS] packet received remote=127.0.0.1:52930 msg_type=3 seq=1 payload_bytes=103
+2026-05-11 19:47:56.031 [I] [service/service.go:153] [TGS] TGS_REQ received id_v=verify_server seq=1 peer_adc=2130706433
+2026-05-11 19:47:56.031 [I] [service/service.go:233] [TGS] service ticket issued client=CLIENT_1 id_v=verify_server lifetime=28800
+2026-05-11 19:47:56.031 [I] [service/service.go:143] [TGS] TGS_REP sent remote=127.0.0.1:52930 seq=1 payload_bytes=108
+2026-05-11 19:47:56.031 [I] [service/service.go:99] [TGS] connection closed remote=127.0.0.1:52930

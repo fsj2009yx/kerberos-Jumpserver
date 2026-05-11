@@ -530,7 +530,7 @@ class ClientRuntime:
     session_id: Optional[str] = None
     v_sock: Optional[Any] = None
     bundle: TicketBundle = field(default_factory=TicketBundle)
-    logs: list = field(default_factory=list)
+    logs: list = field(default_factory=list)  # 存储 PacketLog 对象
     _seq_lock: Any = field(default_factory=threading.Lock, repr=False)
 
     def consume_seq(self) -> int:

@@ -1,0 +1,95 @@
+2026-05-11 19:05:12.555 [I] [cmd/main.go:16] [AS] process starting config=config.json
+2026-05-11 19:05:12.572 [I] [service/service.go:27] [AS] initializing service config=config.json
+2026-05-11 19:05:12.572 [I] [config/config.go:51] [AS] loading config path=config.json
+2026-05-11 19:05:12.576 [I] [config/config.go:66] [AS] config loaded node_id=AS listen=0.0.0.0:8881 webui=0.0.0.0:9881 clients=4
+2026-05-11 19:05:12.576 [I] [service/service.go:58] [AS] client loaded client=CLIENT_1 adc=0
+2026-05-11 19:05:12.576 [I] [service/service.go:58] [AS] client loaded client=CLIENT_2 adc=0
+2026-05-11 19:05:12.576 [I] [service/service.go:58] [AS] client loaded client=CLIENT_3 adc=0
+2026-05-11 19:05:12.576 [I] [service/service.go:58] [AS] client loaded client=CLIENT_4 adc=0
+2026-05-11 19:05:12.584 [I] [service/service.go:60] [AS] service initialized clients=4 ticket_lifetime=28800
+2026-05-11 19:05:12.584 [I] [service/service.go:70] [AS] starting webui addr=0.0.0.0:9881
+2026-05-11 19:05:12.585 [I] [service/web_api.go:90] [AS] webui listening addr=0.0.0.0:9881
+2026-05-11 19:05:12.589 [I] [service/service.go:80] [AS] listening addr=0.0.0.0:8881
+2026-05-11 19:07:40.120 [I] [cmd/main.go:16] [AS] process starting config=config.json
+2026-05-11 19:07:40.127 [I] [service/service.go:27] [AS] initializing service config=config.json
+2026-05-11 19:07:40.127 [I] [config/config.go:51] [AS] loading config path=config.json
+2026-05-11 19:07:40.127 [I] [config/config.go:66] [AS] config loaded node_id=AS listen=0.0.0.0:8881 webui=0.0.0.0:9881 clients=4
+2026-05-11 19:07:40.127 [I] [service/service.go:58] [AS] client loaded client=CLIENT_1 adc=0
+2026-05-11 19:07:40.127 [I] [service/service.go:58] [AS] client loaded client=CLIENT_2 adc=0
+2026-05-11 19:07:40.127 [I] [service/service.go:58] [AS] client loaded client=CLIENT_3 adc=0
+2026-05-11 19:07:40.127 [I] [service/service.go:58] [AS] client loaded client=CLIENT_4 adc=0
+2026-05-11 19:07:40.127 [I] [service/service.go:60] [AS] service initialized clients=4 ticket_lifetime=28800
+2026-05-11 19:07:40.127 [I] [service/service.go:70] [AS] starting webui addr=0.0.0.0:9881
+2026-05-11 19:07:40.127 [I] [service/web_api.go:90] [AS] webui listening addr=0.0.0.0:9881
+2026-05-11 19:07:40.130 [I] [service/service.go:80] [AS] listening addr=0.0.0.0:8881
+2026-05-11 19:09:01.114 [I] [cmd/main.go:16] [AS] process starting config=config.json
+2026-05-11 19:09:01.122 [I] [service/service.go:27] [AS] initializing service config=config.json
+2026-05-11 19:09:01.122 [I] [config/config.go:51] [AS] loading config path=config.json
+2026-05-11 19:09:01.122 [I] [config/config.go:66] [AS] config loaded node_id=AS listen=0.0.0.0:8881 webui=0.0.0.0:9881 clients=4
+2026-05-11 19:09:01.122 [I] [service/service.go:58] [AS] client loaded client=CLIENT_1 adc=0
+2026-05-11 19:09:01.122 [I] [service/service.go:58] [AS] client loaded client=CLIENT_2 adc=0
+2026-05-11 19:09:01.122 [I] [service/service.go:58] [AS] client loaded client=CLIENT_3 adc=0
+2026-05-11 19:09:01.122 [I] [service/service.go:58] [AS] client loaded client=CLIENT_4 adc=0
+2026-05-11 19:09:01.122 [I] [service/service.go:60] [AS] service initialized clients=4 ticket_lifetime=28800
+2026-05-11 19:09:01.122 [I] [service/service.go:70] [AS] starting webui addr=0.0.0.0:9881
+2026-05-11 19:09:01.123 [I] [service/web_api.go:90] [AS] webui listening addr=0.0.0.0:9881
+2026-05-11 19:09:01.124 [I] [service/service.go:80] [AS] listening addr=0.0.0.0:8881
+2026-05-11 19:10:19.284 [I] [cmd/main.go:16] [AS] process starting config=config.json
+2026-05-11 19:10:19.298 [I] [service/service.go:27] [AS] initializing service config=config.json
+2026-05-11 19:10:19.298 [I] [config/config.go:51] [AS] loading config path=config.json
+2026-05-11 19:10:19.299 [I] [config/config.go:66] [AS] config loaded node_id=AS listen=0.0.0.0:8881 webui=0.0.0.0:9881 clients=4
+2026-05-11 19:10:19.299 [I] [service/service.go:58] [AS] client loaded client=CLIENT_1 adc=0
+2026-05-11 19:10:19.299 [I] [service/service.go:58] [AS] client loaded client=CLIENT_2 adc=0
+2026-05-11 19:10:19.299 [I] [service/service.go:58] [AS] client loaded client=CLIENT_3 adc=0
+2026-05-11 19:10:19.300 [I] [service/service.go:58] [AS] client loaded client=CLIENT_4 adc=0
+2026-05-11 19:10:19.300 [I] [service/service.go:60] [AS] service initialized clients=4 ticket_lifetime=28800
+2026-05-11 19:10:19.300 [I] [service/service.go:70] [AS] starting webui addr=0.0.0.0:9881
+2026-05-11 19:10:19.300 [I] [service/web_api.go:90] [AS] webui listening addr=0.0.0.0:9881
+2026-05-11 19:10:19.303 [I] [service/service.go:80] [AS] listening addr=0.0.0.0:8881
+2026-05-11 19:10:34.268 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:64159
+2026-05-11 19:10:34.268 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:64159 msg_type=1 seq=1 payload_bytes=4
+2026-05-11 19:10:34.269 [W] [service/service.go:138] [AS] replay check failed remote=127.0.0.1:64159 seq=1 code=-1005
+2026-05-11 19:10:34.269 [W] [service/service.go:230] [AS] error response sent seq=1 code=-1005
+2026-05-11 19:10:34.269 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:64159
+2026-05-11 19:13:30.471 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:57064
+2026-05-11 19:13:30.620 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:57064 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:13:30.622 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:13:30.622 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:13:30.622 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:57064 seq=1 payload_bytes=92
+2026-05-11 19:13:30.622 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:57064
+2026-05-11 19:16:06.136 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:54667
+2026-05-11 19:16:06.325 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:54667 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:16:06.326 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:16:06.326 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:16:06.327 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:54667 seq=1 payload_bytes=92
+2026-05-11 19:16:06.327 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:54667
+2026-05-11 19:18:09.457 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:52685
+2026-05-11 19:18:09.486 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:52685 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:18:09.487 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:18:09.487 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:18:09.488 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:52685 seq=1 payload_bytes=92
+2026-05-11 19:18:09.489 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:52685
+2026-05-11 19:26:41.807 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:53501
+2026-05-11 19:26:42.036 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:53501 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:26:42.036 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:26:42.037 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:26:42.037 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:53501 seq=1 payload_bytes=92
+2026-05-11 19:26:42.037 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:53501
+2026-05-11 19:47:34.916 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:54526
+2026-05-11 19:47:35.134 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:54526 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:47:35.134 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:47:35.134 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:47:35.135 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:54526 seq=1 payload_bytes=92
+2026-05-11 19:47:35.136 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:54526
+2026-05-11 19:47:54.241 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:52929
+2026-05-11 19:47:54.495 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:52929 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:47:54.495 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:47:54.495 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:47:54.495 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:52929 seq=1 payload_bytes=92
+2026-05-11 19:47:54.495 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:52929
+2026-05-11 19:48:24.302 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:57655
+2026-05-11 19:48:24.490 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:57655 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:48:24.491 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:48:24.492 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:48:24.492 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:57655 seq=1 payload_bytes=92
+2026-05-11 19:48:24.492 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:57655
