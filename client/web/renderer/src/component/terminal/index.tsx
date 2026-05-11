@@ -7,6 +7,24 @@ type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 const WS_PTY_URL = "ws://127.0.0.1:9883/ws/pty";
 
+const encodeBase64 = (value: string): string => {
+	const bytes = new TextEncoder().encode(value);
+	let binary = "";
+	bytes.forEach((byte) => {
+		binary += String.fromCharCode(byte);
+	});
+	return btoa(binary);
+};
+
+const decodeBase64 = (value: string): string => {
+	const binary = atob(value);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i += 1) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return new TextDecoder().decode(bytes);
+};
+
 type TerminalViewProps = {
 	isVisible?: boolean;
 	isAuthenticated: boolean;
@@ -94,7 +112,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			const sessionId = sessionIdRef.current;
 			const chunks = pendingInputRef.current.splice(0, pendingInputRef.current.length);
 			chunks.forEach((chunk) => {
-				sendJson({ op: "input", session_id: sessionId, data: chunk });
+				sendJson({ op: "input", session_id: sessionId, data: encodeBase64(chunk) });
 			});
 		};
 
@@ -104,7 +122,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 				return;
 			}
 
-			sendJson({ op: "input", session_id: sessionIdRef.current, data });
+			sendJson({ op: "input", session_id: sessionIdRef.current, data: encodeBase64(data) });
 		});
 
 		const resizeDisposable = terminal.onResize(({ cols, rows }) => {
@@ -142,7 +160,12 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 					if (!payload.session_id || payload.session_id !== sessionIdRef.current) {
 						return;
 					}
-					terminal.write(payload.data ?? "");
+					const raw = payload.data ?? "";
+					try {
+						terminal.write(raw ? decodeBase64(raw) : "");
+					} catch {
+						terminal.write(raw);
+					}
 					break;
 				}
 				case "exit": {
@@ -152,8 +175,17 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 				}
 				case "error": {
 					setStatus("error");
-					setErrorMessage(payload.message ?? "Unknown error");
-					terminal.writeln(`\r\nError: ${payload.message ?? "Unknown error"}`);
+					const errorText = payload.message ?? "Unknown error";
+					if (payload.data) {
+						try {
+							terminal.writeln(`\r\nError: ${decodeBase64(payload.data)}`);
+						} catch {
+							terminal.writeln(`\r\nError: ${payload.data}`);
+						}
+					} else {
+						terminal.writeln(`\r\nError: ${errorText}`);
+					}
+					setErrorMessage(errorText);
 					break;
 				}
 				default:
