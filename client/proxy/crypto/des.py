@@ -1,5 +1,14 @@
 """DES-CBC加密实现"""
 
+# 导入调试模块
+try:
+    from debug.debug import log_debug, log_encryption, log_decryption, hexdump
+except ImportError:
+    def log_debug(*args, **kwargs): pass
+    def log_encryption(*args, **kwargs): pass
+    def log_decryption(*args, **kwargs): pass
+    def hexdump(*args, **kwargs): pass
+
 # S-boxes for DES
 S_BOXES = [
     [[14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7],
@@ -242,22 +251,32 @@ def pkcs7_unpad(data):
 
 def encrypt_des_cbc(key, plaintext, iv=None):
     """DES-CBC加密"""
+    log_debug("=" * 50)
+    log_debug("DES-CBC Encryption")
+    log_debug(f"Key: {key.hex()}")
+    log_debug(f"Plaintext length: {len(plaintext)} bytes")
+    
     # 确保密钥是8字节
     if len(key) != 8:
+        log_error(f"DES key must be 8 bytes, got {len(key)}")
         raise ValueError("DES key must be 8 bytes")
     
     # 生成子密钥
     key_64 = bytes_to_uint64(key)
     subkeys = generate_subkeys(key_64)
+    log_debug(f"Generated {len(subkeys)} subkeys")
     
     # 生成随机IV
     if iv is None:
         iv = bytes([(i * 137) % 256 for i in range(8)])  # 简单的伪随机
+    log_debug(f"IV: {iv.hex()}")
     
     iv_block = bytes_to_uint64(iv)
     
     # PKCS7填充
     padded = pkcs7_pad(plaintext)
+    log_debug(f"After PKCS7 padding: {len(padded)} bytes")
+    hexdump(plaintext, "Plaintext:")
     
     # CBC模式加密
     ciphertext = bytearray(iv)  # IV前置
@@ -277,30 +296,46 @@ def encrypt_des_cbc(key, plaintext, iv=None):
         ciphertext.extend(uint64_to_bytes(encrypted))
         prev_block = encrypted
     
+    log_debug(f"Ciphertext length: {len(ciphertext)} bytes")
+    hexdump(bytes(ciphertext), "Ciphertext:")
+    log_debug("=" * 50)
+    
     return bytes(ciphertext)
 
 
 def decrypt_des_cbc(key, ciphertext):
     """DES-CBC解密"""
+    log_debug("=" * 50)
+    log_debug("DES-CBC Decryption")
+    log_debug(f"Key: {key.hex()}")
+    log_debug(f"Ciphertext length: {len(ciphertext)} bytes")
+    hexdump(ciphertext, "Ciphertext:")
+    
     # 确保密钥是8字节
     if len(key) != 8:
+        log_error(f"DES key must be 8 bytes, got {len(key)}")
         raise ValueError("DES key must be 8 bytes")
     
     # 确保密文长度至少包含IV
     if len(ciphertext) < 8:
+        log_error(f"Ciphertext too short: {len(ciphertext)} bytes")
         raise ValueError("Ciphertext too short")
     
     # 生成子密钥
     key_64 = bytes_to_uint64(key)
     subkeys = generate_subkeys(key_64)
+    log_debug(f"Generated {len(subkeys)} subkeys")
     
     # 提取IV
     iv = ciphertext[:8]
     iv_block = bytes_to_uint64(iv)
     cipher_data = ciphertext[8:]
+    log_debug(f"IV: {iv.hex()}")
+    log_debug(f"Cipher data length: {len(cipher_data)} bytes")
     
     # 确保密文数据是8的倍数
     if len(cipher_data) % 8 != 0:
+        log_error(f"Ciphertext length must be multiple of 8, got {len(cipher_data)}")
         raise ValueError("Ciphertext length must be multiple of 8")
     
     # CBC模式解密
@@ -322,4 +357,9 @@ def decrypt_des_cbc(key, ciphertext):
         prev_block = block_64
     
     # PKCS7去填充
-    return pkcs7_unpad(bytes(plaintext))
+    unpadded = pkcs7_unpad(bytes(plaintext))
+    log_debug(f"Plaintext length after unpadding: {len(unpadded)} bytes")
+    hexdump(unpadded, "Plaintext:")
+    log_debug("=" * 50)
+    
+    return unpadded
