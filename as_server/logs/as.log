@@ -93,3 +93,27 @@
 2026-05-11 19:48:24.492 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
 2026-05-11 19:48:24.492 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:57655 seq=1 payload_bytes=92
 2026-05-11 19:48:24.492 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:57655
+2026-05-11 19:49:32.608 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:51343
+2026-05-11 19:49:32.865 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:51343 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:49:32.865 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:49:32.866 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:49:32.866 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:51343 seq=1 payload_bytes=92
+2026-05-11 19:49:32.866 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:51343
+2026-05-11 19:50:33.260 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:54580
+2026-05-11 19:50:33.515 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:54580 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:50:33.517 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:50:33.517 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:50:33.517 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:54580 seq=1 payload_bytes=92
+2026-05-11 19:50:33.517 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:54580
+2026-05-11 19:51:46.380 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:63049
+2026-05-11 19:51:46.615 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:63049 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:51:46.617 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:51:46.618 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:51:46.618 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:63049 seq=1 payload_bytes=92
+2026-05-11 19:51:46.618 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:63049
+2026-05-11 19:52:07.115 [I] [service/service.go:87] [AS] accepted connection remote=127.0.0.1:63081
+2026-05-11 19:52:07.364 [I] [service/service.go:127] [AS] packet received remote=127.0.0.1:63081 msg_type=1 seq=1 payload_bytes=19
+2026-05-11 19:52:07.364 [I] [service/service.go:169] [AS] AS_REQ received client=CLIENT_1 seq=1 peer_adc=2130706433
+2026-05-11 19:52:07.365 [I] [service/service.go:220] [AS] TGT issued client=CLIENT_1 id_tgs=TGS lifetime=28800
+2026-05-11 19:52:07.366 [I] [service/service.go:157] [AS] AS_REP sent remote=127.0.0.1:63081 seq=1 payload_bytes=92
+2026-05-11 19:52:07.366 [I] [service/service.go:105] [AS] connection closed remote=127.0.0.1:63081
