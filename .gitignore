@@ -17,3 +17,6 @@ client/certs
 client/keys
 certs
 *.log
+/build/as_server
+/build/v_server
+/build/tgs_server
