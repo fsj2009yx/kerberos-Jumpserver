@@ -1,6 +1,6 @@
 //go:build windows
 
-package service
+package pty
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-func startPTYSession(shell, term string, cols, rows uint16) (*LocalPTYSession, error) {
+func StartSession(shell, term string, cols, rows uint16) (*Session, error) {
 	if shell == "" {
 		return nil, fmt.Errorf("pty shell is empty")
 	}
@@ -33,7 +33,7 @@ func startPTYSession(shell, term string, cols, rows uint16) (*LocalPTYSession, e
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return &LocalPTYSession{PTY: &windowsPTY{r: stdout, w: stdin}, Cmd: cmd}, nil
+	return &Session{PTY: &windowsPTY{r: stdout, w: stdin}, Cmd: cmd}, nil
 }
 
 type windowsPTY struct {
@@ -48,11 +48,11 @@ func (p *windowsPTY) Close() error {
 	return p.r.Close()
 }
 
-func (p *LocalPTYSession) Resize(cols, rows uint16) error {
+func (p *Session) Resize(cols, rows uint16) error {
 	return fmt.Errorf("resize unsupported on windows fallback")
 }
 
-func (p *LocalPTYSession) Signal(sig uint8) error {
+func (p *Session) Signal(sig uint8) error {
 	if p == nil || p.Cmd == nil || p.Cmd.Process == nil {
 		return fmt.Errorf("pty process not started")
 	}
@@ -70,7 +70,7 @@ func (p *LocalPTYSession) Signal(sig uint8) error {
 	return p.Cmd.Process.Signal(s)
 }
 
-func (p *LocalPTYSession) Close() error {
+func (p *Session) Close() error {
 	if p == nil {
 		return nil
 	}
@@ -84,7 +84,7 @@ func (p *LocalPTYSession) Close() error {
 	return nil
 }
 
-func (p *LocalPTYSession) ReadAll(dst chan<- []byte, stop <-chan struct{}) {
+func (p *Session) ReadAll(dst chan<- []byte, stop <-chan struct{}) {
 	if p == nil || p.PTY == nil {
 		close(dst)
 		return

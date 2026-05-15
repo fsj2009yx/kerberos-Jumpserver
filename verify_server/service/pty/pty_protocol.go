@@ -1,4 +1,4 @@
-package service
+package pty
 
 import (
 	"encoding/binary"
@@ -7,19 +7,19 @@ import (
 )
 
 const (
-	ptyEventOpenOK = 0x11
-	ptyEventOutput = 0x12
-	ptyEventExit   = 0x13
-	ptyEventError  = 0x14
+	EventOpenOK = 0x11
+	EventOutput = 0x12
+	EventExit   = 0x13
+	EventError  = 0x14
 
-	ptyOpOpen   = 0x01
-	ptyOpInput  = 0x02
-	ptyOpResize = 0x03
-	ptyOpSignal = 0x04
-	ptyOpClose  = 0x05
+	OpOpen   = 0x01
+	OpInput  = 0x02
+	OpResize = 0x03
+	OpSignal = 0x04
+	OpClose  = 0x05
 )
 
-func parsePtyOpenPayload(raw []byte) (string, uint16, uint16, error) {
+func ParseOpenPayload(raw []byte) (string, uint16, uint16, error) {
 	if len(raw) < 2 {
 		return "", 0, 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
 	}
@@ -33,14 +33,14 @@ func parsePtyOpenPayload(raw []byte) (string, uint16, uint16, error) {
 	return term, cols, rows, nil
 }
 
-func parsePtyResizePayload(raw []byte) (uint16, uint16, error) {
+func ParseResizePayload(raw []byte) (uint16, uint16, error) {
 	if len(raw) < 4 {
 		return 0, 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
 	}
 	return binary.BigEndian.Uint16(raw[:2]), binary.BigEndian.Uint16(raw[2:4]), nil
 }
 
-func parsePtySignalPayload(raw []byte) (uint8, error) {
+func ParseSignalPayload(raw []byte) (uint8, error) {
 	if len(raw) < 1 {
 		return 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
 	}
