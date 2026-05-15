@@ -11,7 +11,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from krb.msg import *
-from krb.logger import log_packet as krb_log_packet, decode_as_rep_plain, decode_tgs_rep_plain, decode_ap_rep_plain
+from krb.logger import log_packet as krb_log_packet, decrypt_payload
 from crypto.des import encrypt_des_cbc, decrypt_des_cbc
 from crypto.sha256 import sha256
 from crypto.rsa import rsa_sign
@@ -366,11 +366,11 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         
         as_rep = unpack_as_rep(resp_payload, kc)
 
-        # 重新获取解密后的明文用于日志记录
-        wire = ASRepPayloadWire.from_bytes(resp_payload)
-        plain_data = decrypt_des_cbc(kc, wire.enc_part)
-        decoded_lines = decode_as_rep_plain(plain_data)
+        # 使用统一解密函数记录解密后的日志
         full_packet = header.to_bytes() + resp_payload
+        header_for_log = KerHeader.from_bytes(full_packet[:20])
+        msg_payload = full_packet[20:20 + header_for_log.total_len] if header_for_log.total_len > 0 else full_packet[20:]
+        decoded_lines = decrypt_payload(0x02, msg_payload, kc)
         krb_log_packet(rt, cfg.as_addr[0], "127.0.0.1", "KRB5",
                        "AS_REP decrypted - Key_c_tgs, Ticket_TGS", full_packet, decoded_lines)
 
@@ -433,7 +433,24 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         log_debug(f"TGS_REQ payload length: {len(payload)} bytes")
         log_debug(f"Using Key_C_TGS: {rt.bundle.key_c_tgs.hex()}")
         log_debug(f"Ticket_TGS length: {len(rt.bundle.ticket_tgs)} bytes")
-        
+
+        # 构建TGS_REQ完整数据包用于日志记录
+        tgs_req_header = KerHeader(
+            magic=0x4B45,
+            version=0x01,
+            msg_type=0x03,
+            total_len=len(payload),
+            seq_num=1,
+            timestamp=ts3,
+            addition=0
+        )
+        tgs_req_packet = tgs_req_header.to_bytes() + payload
+
+        # 使用统一解密函数解密TGS_REQ (Ticket_TGS需要K_tgs可能无法解密，Authenticator_c用Key_c_tgs解密)
+        decoded_lines = decrypt_payload(0x03, payload, rt.bundle.key_c_tgs)
+        krb_log_packet(rt, "127.0.0.1", cfg.tgs_addr[0], "KRB5",
+                       "TGS_REQ decrypted - Ticket_TGS, Authenticator_c", tgs_req_packet, decoded_lines)
+
         # TGS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
         header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, "127.0.0.1", cfg.tgs_addr[0])
@@ -445,11 +462,11 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         
         tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)
 
-        # 重新获取解密后的明文用于日志记录
-        wire = TGSRepPayloadWire.from_bytes(resp_payload)
-        plain_data = decrypt_des_cbc(rt.bundle.key_c_tgs, wire.enc_part)
-        decoded_lines = decode_tgs_rep_plain(plain_data)
+        # 使用统一解密函数记录解密后的日志
         full_packet = header.to_bytes() + resp_payload
+        header_for_log = KerHeader.from_bytes(full_packet[:20])
+        msg_payload = full_packet[20:20 + header_for_log.total_len] if header_for_log.total_len > 0 else full_packet[20:]
+        decoded_lines = decrypt_payload(0x04, msg_payload, rt.bundle.key_c_tgs)
         krb_log_packet(rt, cfg.tgs_addr[0], "127.0.0.1", "KRB5",
                        "TGS_REP decrypted - Key_c_v, Ticket_V", full_packet, decoded_lines)
 
@@ -516,7 +533,24 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         # 发送前立即消费序号；即使服务端返回错误，也不能复用同一个SEQ。
         seq = rt.consume_seq()
         log_debug(f"Using SEQ: {seq}")
-        
+
+        # 构建AP_REQ完整数据包用于日志记录
+        ap_req_header = KerHeader(
+            magic=0x4B45,
+            version=0x01,
+            msg_type=0x05,
+            total_len=len(payload),
+            seq_num=seq,
+            timestamp=ts5,
+            addition=0
+        )
+        ap_req_packet = ap_req_header.to_bytes() + payload
+
+        # 使用统一解密函数解密AP_REQ中的Authenticator_c (Ticket_V需要K_v，客户端无法解密)
+        decoded_lines = decrypt_payload(0x05, payload, rt.bundle.key_c_v)
+        krb_log_packet(rt, "127.0.0.1", cfg.v_addr[0], "KRB5",
+                       "AP_REQ decrypted - Ticket_V, Authenticator_c", ap_req_packet, decoded_lines)
+
         header, resp_payload = send_recv_packet(sock, 0x05, seq, payload, rt, "127.0.0.1", cfg.v_addr[0])
         log_info("AP_REQ sent and AP_REP received")
         
@@ -527,10 +561,8 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         verify_result = verify_ap_rep(resp_payload, rt.bundle.key_c_v, ts5)
 
         # 记录AP_REP解密后的日志
-        wire = APRepPayloadWire.from_bytes(resp_payload)
-        plain_data = decrypt_des_cbc(rt.bundle.key_c_v, wire.enc_part)
-        decoded_lines = decode_ap_rep_plain(plain_data)
         full_packet = header.to_bytes() + resp_payload
+        decoded_lines = decrypt_payload(0x06, resp_payload, rt.bundle.key_c_v)
         krb_log_packet(rt, cfg.v_addr[0], "127.0.0.1", "KRB5",
                        "AP_REP decrypted - TS5+1 Verification", full_packet, decoded_lines)
 
