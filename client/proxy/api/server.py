@@ -5,6 +5,7 @@ import hashlib
 import asyncio
 import sys
 import os
+import time
 from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Form
@@ -16,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from krb.msg import ClientRuntime, ClientConfig, TicketBundle
 from krb.krb import client_do_as, client_do_tgs, client_do_ap, client_app_send_frame, client_app_recv_frame
+from krb.ticket_store import save_tickets, load_tickets, delete_tickets
 
 
 PTY_EVENT_OPEN_OK = 0x11
@@ -49,8 +51,59 @@ def init_config(config_path: str):
         v_addr=(cfg_data['v_host'], cfg_data['v_port']),
         cert_path=resolve_path(cfg_data['cert_path']),
         privkey_path=resolve_path(cfg_data['privkey_path']),
-        service_id=cfg_data.get('service_id', 'verify_server')
+        service_id=cfg_data.get('service_id', 'verify_server'),
+        ticket_store_path=resolve_path(cfg_data.get('ticket_store_path', './tickets/ticket.json')),
     )
+
+    # 尝试从本地加载持久化票据
+    _load_persisted_tickets()
+
+
+def _load_persisted_tickets():
+    """尝试从本地文件加载票据，恢复内存状态。"""
+    global runtime
+    if not config.ticket_store_path:
+        return
+
+    bundle_dict, client_id, service_id = load_tickets(config.ticket_store_path)
+    if bundle_dict is None:
+        return
+
+    # 校验票据中的 client_id 与当前配置一致
+    if client_id != config.client_id:
+        delete_tickets(config.ticket_store_path)
+        return
+
+    # 校验 service_id 一致
+    if service_id != config.service_id:
+        delete_tickets(config.ticket_store_path)
+        return
+
+    # 恢复 TicketBundle 到内存
+    runtime.bundle = TicketBundle(
+        key_c_tgs=bundle_dict["key_c_tgs"],
+        ticket_tgs=bundle_dict["ticket_tgs"],
+        key_c_v=bundle_dict["key_c_v"],
+        ticket_v=bundle_dict["ticket_v"],
+        tgt_expire=bundle_dict["tgt_expire"],
+        tv_expire=bundle_dict["tv_expire"],
+    )
+
+    # 判断票据阶段
+    now = int(time.time())
+    if runtime.bundle.key_c_v and runtime.bundle.ticket_v and runtime.bundle.tv_expire > now:
+        runtime.state = "STATE_TGS_DONE"
+        runtime.logs.append(f"Tickets loaded from {config.ticket_store_path} "
+                            f"(tv_expire={runtime.bundle.tv_expire}, "
+                            f"tgt_expire={runtime.bundle.tgt_expire})")
+    elif runtime.bundle.key_c_tgs and runtime.bundle.ticket_tgs and runtime.bundle.tgt_expire > now:
+        runtime.state = "STATE_AS_DONE"
+        runtime.logs.append(f"TGT loaded from {config.ticket_store_path} "
+                            f"(tgt_expire={runtime.bundle.tgt_expire})")
+    else:
+        # 票据过期或数据不完整，清除
+        runtime.bundle = TicketBundle()
+        delete_tickets(config.ticket_store_path)
 
 
 app = FastAPI(title="Kerberos Client API", version="1.0")
@@ -84,40 +137,125 @@ async def root():
 
 
 @app.post("/api/login")
-async def login(username: str = Form(...), password: str = Form(...)):
-    """触发Kerberos三阶段认证"""
+async def login(username: str = Form(""), password: str = Form("")):
+    """触发Kerberos三阶段认证。
+
+    如果本地有未过期的有效票据，自动跳过 AS/TGS 阶段，仅执行 AP 连接。
+    """
     global runtime
-    
+
+    # 关闭已有 V 连接
     if runtime.v_sock is not None:
         try:
             runtime.v_sock.close()
         except Exception:
             pass
+        runtime.v_sock = None
 
-    # 每次登录建立新的 Kerberos 连接上下文，协议SEQ从该连接上下文重新开始。
+    now = int(time.time())
+
+    # —— 判断是否可以跳过 AS / TGS 阶段 ——
+    can_skip_as = False
+    can_skip_tgs = False
+    effective_username = username.strip() if username.strip() else config.client_id
+
+    if runtime.state == "STATE_TGS_DONE" and runtime.bundle.tv_expire > now:
+        if runtime.bundle.key_c_v and runtime.bundle.ticket_v:
+            if not username.strip() or username.strip() == config.client_id:
+                can_skip_as = True
+                can_skip_tgs = True
+    elif runtime.state == "STATE_AS_DONE" and runtime.bundle.tgt_expire > now:
+        if runtime.bundle.key_c_tgs and runtime.bundle.ticket_tgs:
+            if not username.strip() or username.strip() == config.client_id:
+                can_skip_as = True
+
+    # 如果需要全流程但未提供密码，返回错误
+    if not can_skip_as and not password:
+        return {
+            "state": runtime.state,
+            "error": "No valid tickets found. Password required for full authentication."
+        }
+
+    # —— 执行认证 ——
+    if can_skip_tgs:
+        # 票据完整有效，仅执行 AP 阶段
+        config.client_id = effective_username
+        # 保留已加载的 bundle，不重置 runtime
+        runtime.state = "STATE_TGS_DONE"
+        runtime.logs.append(f"Login (cached): skipping AS/TGS, running AP for {effective_username}")
+
+        result = client_do_ap(runtime, config)
+        if result != 0:
+            # AP 失败（可能是 V 端票据过期或 V 不可达），清除过期票据
+            delete_tickets(config.ticket_store_path)
+            runtime.bundle.tv_expire = 0
+            return {"state": runtime.state, "error": "AP phase failed — tickets may have been revoked"}
+
+        runtime.logs.append(f"Login completed (cached) for {effective_username}")
+        _persist_after_login()
+        import uuid
+        runtime.session_id = str(uuid.uuid4())
+        return {
+            "state": runtime.state,
+            "tgt_expire": runtime.bundle.tgt_expire,
+            "tv_expire": runtime.bundle.tv_expire,
+            "session_id": runtime.session_id,
+            "cached": True,
+        }
+
+    if can_skip_as:
+        # TGT 有效、但服务票据缺失或过期，执行 TGS + AP
+        config.client_id = effective_username
+        runtime.state = "STATE_AS_DONE"
+        runtime.logs.append(f"Login (partial cache): skipping AS, running TGS+AP for {effective_username}")
+
+        result = client_do_tgs(runtime, config, config.service_id)
+        if result != 0:
+            delete_tickets(config.ticket_store_path)
+            return {"state": runtime.state, "error": "TGS phase failed"}
+
+        result = client_do_ap(runtime, config)
+        if result != 0:
+            return {"state": runtime.state, "error": "AP phase failed"}
+
+        runtime.logs.append(f"Login completed (partial cache) for {effective_username}")
+        _persist_after_login()
+        import uuid
+        runtime.session_id = str(uuid.uuid4())
+        return {
+            "state": runtime.state,
+            "tgt_expire": runtime.bundle.tgt_expire,
+            "tv_expire": runtime.bundle.tv_expire,
+            "session_id": runtime.session_id,
+            "cached": True,
+        }
+
+    # —— 完整三阶段认证 ——
     runtime = ClientRuntime()
-    config.client_id = username
-    runtime.logs.append(f"Login started for {username}")
-    
+    config.client_id = effective_username
+    runtime.logs.append(f"Login started for {effective_username}")
+
     # AS阶段
-    result = client_do_as(runtime, config, username, password)
+    result = client_do_as(runtime, config, effective_username, password)
     if result != 0:
         return {"state": runtime.state, "error": "AS phase failed"}
-    
+
     # TGS阶段
     result = client_do_tgs(runtime, config, config.service_id)
     if result != 0:
         return {"state": runtime.state, "error": "TGS phase failed"}
-    
+
     # AP阶段
     result = client_do_ap(runtime, config)
     if result != 0:
         return {"state": runtime.state, "error": "AP phase failed"}
-    runtime.logs.append(f"Login completed for {username}")
-    
+
+    runtime.logs.append(f"Login completed for {effective_username}")
+    _persist_after_login()
+
     import uuid
     runtime.session_id = str(uuid.uuid4())
-    
+
     return {
         "state": runtime.state,
         "tgt_expire": runtime.bundle.tgt_expire,
@@ -126,11 +264,23 @@ async def login(username: str = Form(...), password: str = Form(...)):
     }
 
 
+def _persist_after_login():
+    """登录成功后持久化票据到本地文件。"""
+    if not config.ticket_store_path:
+        return
+    try:
+        save_tickets(runtime.bundle, config.client_id, config.service_id, config.ticket_store_path)
+        runtime.logs.append(f"Tickets saved to {config.ticket_store_path}")
+    except Exception as e:
+        runtime.logs.append(f"Failed to save tickets: {e}")
+
+
 @app.get("/api/state")
 async def get_state():
     """获取当前Client状态"""
     return {
         "state": runtime.state,
+        "client_id": config.client_id,
         "k_ctgs_sha256": hashlib.sha256(runtime.bundle.key_c_tgs).hexdigest() if runtime.bundle.key_c_tgs else "",
         "k_cv_sha256": hashlib.sha256(runtime.bundle.key_c_v).hexdigest() if runtime.bundle.key_c_v else "",
         "tgt_expire": runtime.bundle.tgt_expire,

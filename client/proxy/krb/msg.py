@@ -521,6 +521,7 @@ class ClientConfig:
     cert_path: str
     privkey_path: str
     service_id: str = "verify_server"
+    ticket_store_path: str = ""
 
 
 @dataclass
