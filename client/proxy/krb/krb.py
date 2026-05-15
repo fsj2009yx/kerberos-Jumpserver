@@ -11,7 +11,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from krb.msg import *
-from krb.logger import log_packet as krb_log_packet
+from krb.logger import log_packet as krb_log_packet, decode_as_rep_plain, decode_tgs_rep_plain, decode_ap_rep_plain
 from crypto.des import encrypt_des_cbc, decrypt_des_cbc
 from crypto.sha256 import sha256
 from crypto.rsa import rsa_sign
@@ -365,7 +365,15 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         hexdump(resp_payload, "Encrypted AS_REP:")
         
         as_rep = unpack_as_rep(resp_payload, kc)
-        
+
+        # 重新获取解密后的明文用于日志记录
+        wire = ASRepPayloadWire.from_bytes(resp_payload)
+        plain_data = decrypt_des_cbc(kc, wire.enc_part)
+        decoded_lines = decode_as_rep_plain(plain_data)
+        full_packet = header.to_bytes() + resp_payload
+        krb_log_packet(rt, cfg.as_addr[0], "127.0.0.1", "KRB5",
+                       "AS_REP decrypted - Key_c_tgs, Ticket_TGS", full_packet, decoded_lines)
+
         # 更新运行时状态
         rt.bundle.key_c_tgs = as_rep.key_c_tgs
         rt.bundle.ticket_tgs = as_rep.ticket_tgs
@@ -436,7 +444,15 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         hexdump(resp_payload, "Encrypted TGS_REP:")
         
         tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)
-        
+
+        # 重新获取解密后的明文用于日志记录
+        wire = TGSRepPayloadWire.from_bytes(resp_payload)
+        plain_data = decrypt_des_cbc(rt.bundle.key_c_tgs, wire.enc_part)
+        decoded_lines = decode_tgs_rep_plain(plain_data)
+        full_packet = header.to_bytes() + resp_payload
+        krb_log_packet(rt, cfg.tgs_addr[0], "127.0.0.1", "KRB5",
+                       "TGS_REP decrypted - Key_c_v, Ticket_V", full_packet, decoded_lines)
+
         # 更新运行时状态
         rt.bundle.key_c_v = tgs_rep.key_c_v
         rt.bundle.ticket_v = tgs_rep.ticket_v
@@ -508,7 +524,16 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         log_debug(f"Encrypted AP_REP payload: {len(resp_payload)} bytes")
         hexdump(resp_payload, "Encrypted AP_REP:")
         
-        verify_ap_rep(resp_payload, rt.bundle.key_c_v, ts5)
+        verify_result = verify_ap_rep(resp_payload, rt.bundle.key_c_v, ts5)
+
+        # 记录AP_REP解密后的日志
+        wire = APRepPayloadWire.from_bytes(resp_payload)
+        plain_data = decrypt_des_cbc(rt.bundle.key_c_v, wire.enc_part)
+        decoded_lines = decode_ap_rep_plain(plain_data)
+        full_packet = header.to_bytes() + resp_payload
+        krb_log_packet(rt, cfg.v_addr[0], "127.0.0.1", "KRB5",
+                       "AP_REP decrypted - TS5+1 Verification", full_packet, decoded_lines)
+
         log_info(f"AP_REP TS verification passed (TS5+1 = {ts5 + 1})")
         
         # 更新运行时状态

@@ -377,3 +377,87 @@ def log_packet(runtime, source: str, destination: str, protocol: str,
     packet_log = PacketLog(seq, source, destination, protocol, info, raw_data, decoded_lines)
     runtime.logs.append(packet_log)
     return packet_log
+
+
+def decode_as_rep_plain(plain_data: bytes) -> list:
+    """解码AS_REP解密后的明文"""
+    lines = []
+    offset = 0
+
+    key_c_tgs = plain_data[offset:offset+8]
+    offset += 8
+    lines.append(f"  Key_c_tgs: {key_c_tgs.hex()}")
+
+    id_tgs_len = int.from_bytes(plain_data[offset:offset+2], 'big')
+    offset += 2
+    id_tgs = plain_data[offset:offset+id_tgs_len].decode('utf-8', errors='replace')
+    offset += id_tgs_len
+    lines.append(f"  ID_TGS: {id_tgs}")
+
+    ts2 = int.from_bytes(plain_data[offset:offset+4], 'big')
+    offset += 4
+    lines.append(f"  TS2: {ts2}")
+
+    lifetime = int.from_bytes(plain_data[offset:offset+4], 'big')
+    offset += 4
+    lines.append(f"  Lifetime: {lifetime}")
+
+    ticket_len = int.from_bytes(plain_data[offset:offset+4], 'big')
+    offset += 4
+    lines.append(f"  Ticket_TGS_Len: {ticket_len}")
+
+    if ticket_len > 0 and offset + ticket_len <= len(plain_data):
+        ticket_tgs = plain_data[offset:offset+ticket_len]
+        offset += ticket_len
+        lines.append(f"  Ticket_TGS: [encrypted, {len(ticket_tgs)} bytes]")
+        lines.append(f"    hex: {ticket_tgs[:64].hex()}{'...' if len(ticket_tgs) > 64 else ''}")
+
+    return lines
+
+
+def decode_tgs_rep_plain(plain_data: bytes) -> list:
+    """解码TGS_REP解密后的明文"""
+    lines = []
+    offset = 0
+
+    key_c_v = plain_data[offset:offset+8]
+    offset += 8
+    lines.append(f"  Key_c_v: {key_c_v.hex()}")
+
+    id_v_len = int.from_bytes(plain_data[offset:offset+2], 'big')
+    offset += 2
+    id_v = plain_data[offset:offset+id_v_len].decode('utf-8', errors='replace')
+    offset += id_v_len
+    lines.append(f"  ID_V: {id_v}")
+
+    ts4 = int.from_bytes(plain_data[offset:offset+4], 'big')
+    offset += 4
+    lines.append(f"  TS4: {ts4}")
+
+    lifetime = int.from_bytes(plain_data[offset:offset+4], 'big')
+    offset += 4
+    lines.append(f"  Lifetime: {lifetime}")
+
+    ticket_v_len = int.from_bytes(plain_data[offset:offset+4], 'big')
+    offset += 4
+    lines.append(f"  Ticket_V_Len: {ticket_v_len}")
+
+    if ticket_v_len > 0 and offset + ticket_v_len <= len(plain_data):
+        ticket_v = plain_data[offset:offset+ticket_v_len]
+        offset += ticket_v_len
+        lines.append(f"  Ticket_V: [encrypted, {len(ticket_v)} bytes]")
+        lines.append(f"    hex: {ticket_v[:64].hex()}{'...' if len(ticket_v) > 64 else ''}")
+
+    return lines
+
+
+def decode_ap_rep_plain(plain_data: bytes) -> list:
+    """解码AP_REP解密后的明文"""
+    lines = []
+
+    if len(plain_data) >= 4:
+        ts5_plus_1 = int.from_bytes(plain_data[0:4], 'big')
+        lines.append(f"  TS5+1: {ts5_plus_1}")
+        lines.append(f"  [AP_REP验证: Server确认收到AP_REQ]")
+
+    return lines
