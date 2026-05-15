@@ -19,6 +19,9 @@ const (
 	OpClose  = 0x05
 )
 
+// ParseOpenPayload 解析Open事件的payload，格式为：
+// [termLen(2 bytes)][term(termLen bytes)][cols(2 bytes)][rows(2 bytes)]
+// 其中termLen为term的长度，cols和rows分别为终端的列数和行数
 func ParseOpenPayload(raw []byte) (string, uint16, uint16, error) {
 	if len(raw) < 2 {
 		return "", 0, 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
@@ -33,6 +36,9 @@ func ParseOpenPayload(raw []byte) (string, uint16, uint16, error) {
 	return term, cols, rows, nil
 }
 
+// ParseResizePayload ParseInputPayload 解析Input事件的payload，格式为：
+// [dataLen(2 bytes)][data(dataLen bytes)]
+// 其中dataLen为输入数据的长度，data为输入的数据内容
 func ParseResizePayload(raw []byte) (uint16, uint16, error) {
 	if len(raw) < 4 {
 		return 0, 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
@@ -40,6 +46,9 @@ func ParseResizePayload(raw []byte) (uint16, uint16, error) {
 	return binary.BigEndian.Uint16(raw[:2]), binary.BigEndian.Uint16(raw[2:4]), nil
 }
 
+// ParseSignalPayload 解析Signal事件的payload，格式为：
+// [sig(1 byte)]
+// 其中sig为信号的编号，具体信号编号可以参考Unix系统的信号定义，如1表示SIGHUP，2表示SIGINT，3表示SIGQUIT等
 func ParseSignalPayload(raw []byte) (uint8, error) {
 	if len(raw) < 1 {
 		return 0, krb.ErrorFromCode(krb.ErrTicketInvalid)

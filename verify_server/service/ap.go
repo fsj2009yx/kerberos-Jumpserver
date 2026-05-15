@@ -8,7 +8,7 @@ import (
 	"security-project/pkg/utils/log"
 )
 
-func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, payload []byte, sendPacket func(uint8, []byte) error) ([]byte, *SessionContext, error) {
+func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, payload []byte) ([]byte, *SessionContext, error) {
 	req, err := krb.ParseAPReqPayload(payload)
 	if err != nil {
 		log.Warnf("[V] parse AP_REQ failed seq=%d err=%v", h.SeqNum, err)
@@ -42,6 +42,9 @@ func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, pay
 		return nil, nil, krb.ErrorFromCode(krb.ErrADMismatch)
 	}
 
+	//Kerberos V5 AP-REQ is valid, create session context for this client
+	//当Kerberos V5 AP-REQ有效时，为该客户端创建会话上下文
+
 	sess := &SessionContext{
 		IDClient:     clientID,
 		ADc:          ticket.ADc,
@@ -50,6 +53,8 @@ func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, pay
 		PtySessionID: 0,
 		LastIO:       time.Now(),
 	}
+
+	// 使用AP-REQ消息的上下文作为会话上下文的基础，并将其存储在服务端的会话管理器中，以便后续的消息处理能够关联到正确的客户端会话
 	sess.Ctx, sess.Cancel = context.WithCancel(connCtx)
 	s.state.mu.Lock()
 	s.state.Sessions[sess.IDClient] = sess
@@ -62,4 +67,34 @@ func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, pay
 		return nil, nil, err
 	}
 	return resp, sess, nil
+}
+
+func (s *Service) handleAPReqPacket(c *ConnState, h krb.ProtocolHeader, payload []byte) bool {
+
+	// AP_REQ消息必须是未认证状态下的第一个消息，因此如果连接已经认证过了，就说明收到了重复的AP_REQ消息，可能是重放攻击或者客户端错误
+	if c.authed {
+		log.Warnf("[V] duplicate AP_REQ remote=%s seq=%d", c.remote, h.SeqNum)
+		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrMsgTypeInvalid))
+		return false
+	}
+
+	// 对AP_REQ消息进行重放攻击检查，检查的依据是消息的时间戳和序列号，如果消息的时间戳过旧或者序列号已经出现过了，就说明可能是重放攻击
+	if err := c.replay.Check(h.Timestamp, h.SeqNum); err != nil {
+		log.Warnf("[V] AP replay check failed remote=%s seq=%d err=%v", c.remote, h.SeqNum, err)
+		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
+		return false
+	}
+	respPayload, sess, err := s.handleAPReq(c.ctx, h, payload)
+	if err != nil {
+		log.Warnf("[V] AP_REQ handling failed remote=%s seq=%d err=%v", c.remote, h.SeqNum, err)
+		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
+		return false
+	}
+	c.authed = true
+	c.current = sess
+	if err := c.sendPacket(krb.MsgAPRep, respPayload); err != nil {
+		return false
+	}
+	log.Infof("[V] AP authentication accepted remote=%s client=%s seq=%d", c.remote, c.current.IDClient, h.SeqNum)
+	return true
 }
