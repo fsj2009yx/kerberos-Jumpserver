@@ -48,6 +48,7 @@ func (c *ConnState) closeOnCancel() {
 }
 
 func (c *ConnState) readPacket(readTimeoutSec int, maxPayloadBytes uint32) (krb.ProtocolHeader, []byte, error) {
+	// 设置读取超时，防止连接被占用过久
 	_ = c.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSec) * time.Second))
 	return krb.ReadPacket(c.conn, maxPayloadBytes)
 }

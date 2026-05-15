@@ -10,23 +10,30 @@ import (
 	"security-project/pkg/utils/log"
 )
 
+// handleAPPReq 处理来自客户端的APP_REQ消息，解析请求内容，验证请求合法性，
+// 并根据请求的操作类型执行相应的PTY操作，如打开PTY会话、发送输入、调整窗口大小、发送信号或关闭PTY会话等
 func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *SessionContext, sendPacket func(uint8, uint32, []byte) error, respSeq uint32, nextSeq func() uint32) (uint8, []byte, error) {
 	req, err := krb.ParseAPPReqPayload(payload)
 	if err != nil {
 		log.Warnf("[V] parse APP_REQ failed client=%s seq=%d err=%v", current.IDClient, h.SeqNum, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
 	}
+
+	// 验证请求中的客户端ID是否与当前会话的客户端ID匹配，如果不匹配则返回错误，防止客户端冒用其他会话的身份进行操作
 	if req.IDClient.Len > 0 && string(req.IDClient.Data) != current.IDClient {
 		err := krb.ErrorFromCode(krb.ErrCertIDMismatch)
 		log.Warnf("[V] APP client mismatch session_client=%s req_client=%s", current.IDClient, string(req.IDClient.Data))
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrCertIDMismatch), err
 	}
+
+	// 验证当前会话是否已经过期，如果当前时间超过了会话的ExpireAt时间戳，则认为会话已经过期，返回错误并拒绝处理请求
 	if uint32(time.Now().Unix()) > current.ExpireAt {
 		err := krb.ErrorFromCode(krb.ErrTicketExpired)
 		log.Warnf("[V] APP rejected expired session client=%s expire_at=%d", current.IDClient, current.ExpireAt)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketExpired), err
 	}
 
+	// 如果当前会话关联了客户端证书，则使用证书中的RSA公钥验证请求中的签名，确保请求的真实性和完整性，防止请求被篡改或伪造
 	if cert := s.clientCerts[current.IDClient]; cert != nil {
 		pub, err := cert.PublicKeyRSA()
 		if err != nil {
@@ -80,8 +87,12 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			log.Errorf("[V] pty start failed client=%s shell=%s term=%s cols=%d rows=%d err=%v", current.IDClient, s.Config.PTYShell, term, cols, rows, startErr)
 			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("pty start failed")), startErr
 		}
+
+		// 将新启动的PTY会话与当前会话进行关联，并为当前会话分配一个唯一的PTY会话ID，以便后续的输入输出操作能够正确地路由到对应的PTY会话中
 		current.PTY = ptySession
 		current.PtySessionID = s.nextSessionID()
+
+		//监听当前会话的取消信号，如果会话被取消，则关闭关联的PTY会话
 		if current.Cancel != nil {
 			go func(sess *SessionContext) {
 				<-sess.Ctx.Done()
@@ -90,6 +101,9 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 				}
 			}(current)
 		}
+
+		// 启动一个新的goroutine来处理当前PTY会话的输入输出流，将PTY的输出数据通过回调函数发送给客户端
+		//并在每次处理输入输出时更新当前会话的统计信息和最后一次IO时间戳，确保会话的活跃程度和交互量能够被正确地监控和记录
 		go pty.StreamOutput(current.PTY, pty.StreamCallbacks{
 			ClientID:   current.IDClient,
 			SessionID:  current.PtySessionID,
@@ -176,6 +190,35 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		log.Warnf("[V] invalid pty operation client=%s op=%d", current.IDClient, plain.PtyOp)
 		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("invalid pty op")), krb.ErrorFromCode(krb.ErrMsgTypeInvalid)
 	}
+}
+
+// handleAppPacket 处理来自客户端的APP消息，首先检查会话是否已经认证和存在，如果未认证或会话不存在，则拒绝处理并返回错误；
+func (s *Service) handleAppPacket(c *ConnState, h krb.ProtocolHeader, payload []byte) bool {
+	if !c.authed || c.current == nil {
+		log.Warnf("[V] APP rejected without session remote=%s seq=%d", c.remote, h.SeqNum)
+		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrSessionNotFound))
+		return false
+	}
+	if err := c.replay.Check(h.Timestamp, h.SeqNum); err != nil {
+		log.Warnf("[V] APP replay check failed remote=%s client=%s seq=%d err=%v", c.remote, c.current.IDClient, h.SeqNum, err)
+		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
+		return false
+	}
+	respSeq := c.nextSeq()
+	respType, respPayload, respErr := s.handleAPPReq(h, payload, c.current, c.sendPacketWithSeq, respSeq, c.nextSeq)
+	if respErr != nil {
+		log.Warnf("[V] APP handling failed remote=%s client=%s seq=%d err=%v", c.remote, c.current.IDClient, h.SeqNum, respErr)
+		_ = c.sendPacketWithSeq(respType, respSeq, respPayload)
+		return false
+	}
+	if err := c.sendPacketWithSeq(respType, respSeq, respPayload); err != nil {
+		return false
+	}
+	if c.current != nil && c.current.Closed {
+		log.Infof("[V] session closed remote=%s client=%s pty_session_id=%d", c.remote, c.current.IDClient, c.current.PtySessionID)
+		return false
+	}
+	return respType == krb.MsgApp
 }
 
 // 构建APP_REP响应，包含事件类型、pty会话ID、退出码和输出数据等信息，并使用当前会话的KeyCV进行加密和签名
