@@ -2,19 +2,11 @@ package service
 
 import (
 	"context"
-	"io"
-	"os"
-	"os/exec"
 	"sync"
 	"time"
-)
 
-type LocalPTYSession struct {
-	PTY  io.ReadWriteCloser
-	File *os.File
-	Cmd  *exec.Cmd
-	mu   sync.Mutex
-}
+	"security-project/verify_server/service/pty"
+)
 
 type SessionContext struct {
 	IDClient     string
@@ -24,7 +16,7 @@ type SessionContext struct {
 	PtySessionID uint32
 	LastIO       time.Time
 	TotalFrames  uint64
-	PTY          *LocalPTYSession
+	PTY          *pty.Session
 	Ctx          context.Context
 	Cancel       context.CancelFunc
 	Closed       bool
