@@ -21,11 +21,11 @@ def gen_rsa_pair():
     priv_numbers = priv.private_numbers()
     
     return {
-        'n': format(numbers.n, 'x'),
+        'n': format(numbers.n, 'x').zfill(512),
         'e': format(numbers.e, 'x').zfill(6),
-        'd': format(priv_numbers.d, 'x')
+        'd': format(priv_numbers.d, 'x').zfill(512)
     }, {
-        'n': format(numbers.n, 'x'),
+        'n': format(numbers.n, 'x').zfill(512),
         'e': format(numbers.e, 'x').zfill(6)
     }
 

@@ -58,10 +58,15 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 	};
 
 	useEffect(() => {
-		if (!containerRef.current || !isAuthenticated) {
+		if (!containerRef.current || !isAuthenticated || !isVisible) {
 			if (!isAuthenticated) {
 				setStatus("disconnected");
 				setErrorMessage("Login required to open terminal.");
+				sessionIdRef.current = null;
+				pendingInputRef.current = [];
+			} else if (!isVisible) {
+				setStatus("disconnected");
+				setErrorMessage(null);
 				sessionIdRef.current = null;
 				pendingInputRef.current = [];
 			}
@@ -195,13 +200,14 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 
 		socket.onerror = () => {
 			setStatus("error");
-			setErrorMessage("WebSocket error");
-			terminal.writeln("\r\nWebSocket error.");
+			setErrorMessage(`WebSocket error: ${WS_PTY_URL}`);
+			terminal.writeln(`\r\nWebSocket error: ${WS_PTY_URL}`);
 		};
 
-		socket.onclose = () => {
+		socket.onclose = (event) => {
 			setStatus("disconnected");
-			terminal.writeln("\r\nConnection closed.");
+			const reason = event.reason ? ` ${event.reason}` : "";
+			terminal.writeln(`\r\nConnection closed.${reason}`);
 			sessionIdRef.current = null;
 		};
 
@@ -223,7 +229,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			fitAddonRef.current = null;
 			terminalRef.current = null;
 		};
-	}, [isAuthenticated]);
+	}, [isAuthenticated, isVisible]);
 
 	useEffect(() => {
 		if (!isVisible) {

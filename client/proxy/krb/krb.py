@@ -369,7 +369,9 @@ def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig, timeout: Optiona
     """从已认证的V连接上读取一个APP响应帧。timeout到期时返回None。"""
     sock = rt.v_sock
     if sock is None:
-        raise RuntimeError("V session is not connected")
+        msg = "V session is not connected"
+        log_error(msg)
+        raise RuntimeError(msg)
 
     old_timeout = sock.gettimeout()
     if timeout is not None:
@@ -383,11 +385,14 @@ def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig, timeout: Optiona
             sock.settimeout(old_timeout)
 
     if header.msg_type != 0x07:
-        raise RuntimeError(f"Unexpected APP response type: {header.msg_type}")
+        msg = f"Unexpected APP response type: {header.msg_type}"
+        log_error(msg)
+        raise RuntimeError(msg)
     try:
         v_pub_key = load_verified_v_public_key(cfg)
         return unpack_app_rep(resp_payload, rt.bundle.key_c_v, header.seq_num, v_pub_key)
-    except Exception:
+    except Exception as e:
+        log_error(f"APP response verification/decrypt failed: {type(e).__name__}: {e}")
         try:
             sock.close()
         except Exception:
@@ -669,6 +674,9 @@ def client_app_send_frame(rt: ClientRuntime, cfg: ClientConfig,
                           incidental_events: Optional[list[APPRepPlain]] = None) -> Optional[APPRepPlain]:
     """业务帧发送函数"""
     if rt.state != "STATE_V_CONNECTED":
+        msg = f"APP send skipped op={pty_op} session={pty_session_id}: state={rt.state}"
+        log_error(msg)
+        rt.logs.append(msg)
         return None
     
     try:
@@ -705,5 +713,7 @@ def client_app_send_frame(rt: ClientRuntime, cfg: ClientConfig,
         return app_rep
         
     except Exception as e:
-        rt.logs.append(f"APP send failed: {str(e)}")
+        msg = f"APP send failed op={pty_op} session={pty_session_id}: {type(e).__name__}: {e}"
+        log_error(msg)
+        rt.logs.append(msg)
         return None

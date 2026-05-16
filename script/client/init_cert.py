@@ -26,8 +26,8 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def hex_int(value: int) -> str:
-    return format(value, "x")
+def hex_int(value: int, width: int = 0) -> str:
+    return format(value, "x").zfill(width)
 
 
 def write_json(path: Path, value: dict, mode: int = 0o600) -> None:
@@ -56,9 +56,9 @@ def generate_rsa_keypair() -> tuple[dict, dict, rsa.RSAPrivateKey]:
     pub_numbers = priv.public_key().public_numbers()
     priv_numbers = priv.private_numbers()
     private_doc = {
-        "n": hex_int(pub_numbers.n),
+        "n": hex_int(pub_numbers.n, 512),
         "e": hex_int(pub_numbers.e).zfill(6),
-        "d": hex_int(priv_numbers.d),
+        "d": hex_int(priv_numbers.d, 512),
     }
     public_doc = {
         "n": private_doc["n"],

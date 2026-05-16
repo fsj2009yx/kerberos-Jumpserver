@@ -45,6 +45,23 @@ def bytes_to_int(data):
     return result
 
 
+def hex_to_int(value, field_name):
+    """Convert project RSA hex fields to int, accepting older odd-length keys."""
+    if not isinstance(value, str):
+        raise ValueError(f"RSA {field_name} must be a hex string")
+
+    value = value.strip()
+    if not value:
+        raise ValueError(f"RSA {field_name} is empty")
+    if len(value) % 2 == 1:
+        value = "0" + value
+
+    try:
+        return bytes_to_int(bytes.fromhex(value))
+    except ValueError as exc:
+        raise ValueError(f"RSA {field_name} contains non-hex characters") from exc
+
+
 def int_to_bytes(value, length=256):
     """大整数转字节串（大端序）"""
     result = bytearray()
@@ -78,8 +95,8 @@ def rsa_sign(msg_hash, priv_key):
     m = bytes_to_int(em)
     
     # 签名: s = m^d mod n
-    n = bytes_to_int(bytes.fromhex(priv_key['n']))
-    d = bytes_to_int(bytes.fromhex(priv_key['d']))
+    n = hex_to_int(priv_key['n'], "n")
+    d = hex_to_int(priv_key['d'], "d")
     
     s = pow_mod(m, d, n)
     
@@ -101,8 +118,8 @@ def rsa_verify(msg_hash, signature, pub_key):
     s = bytes_to_int(signature)
     
     # 验签: m' = s^e mod n
-    n = bytes_to_int(bytes.fromhex(pub_key['n']))
-    e = bytes_to_int(bytes.fromhex(pub_key['e']))
+    n = hex_to_int(pub_key['n'], "n")
+    e = hex_to_int(pub_key['e'], "e")
     
     m_prime = pow_mod(s, e, n)
     

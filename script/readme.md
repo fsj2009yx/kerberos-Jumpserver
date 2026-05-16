@@ -2,6 +2,16 @@
 
 Certificate initialization scripts:
 
+- `script/init_all_certs.py`
+  - One-command generator for V and `CLIENT_N` identities.
+  - Generates `keys/v_priv.json`.
+  - Generates `certs/v_cert.json`.
+  - Generates shared client certificates under `certs/`.
+  - Generates numbered client private keys under `client/keys/`.
+  - Generates numbered client certificates under `client/certs/`.
+  - Updates active proxy aliases `client/keys/client_priv.json` and `client/certs/cert_client.json` by default.
+  - AS/TGS are not part of the certificate verification flow and are not generated here.
+
 - `script/v_server/init_cert.py`
   - Generates `keys/v_priv.json`
   - Generates `certs/v_cert.json`
@@ -19,6 +29,9 @@ Certificates already contain public keys, so standalone `*_pub.json` files are n
 Examples:
 
 ```bash
+client/proxy/.venv/bin/python script/init_all_certs.py
+client/proxy/.venv/bin/python script/init_all_certs.py --clients 4 --active-client 1
+client/proxy/.venv/bin/python script/init_all_certs.py --write-public-json
 client/proxy/.venv/bin/python script/v_server/init_cert.py
 client/proxy/.venv/bin/python script/client/init_cert.py 1
 client/proxy/.venv/bin/python script/client/init_cert.py
