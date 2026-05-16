@@ -485,13 +485,25 @@ func decodeSignature(s string) ([]byte, error) {
 	if s == "" {
 		return nil, errors.New("empty signature")
 	}
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
-		return b, nil
+	if len(s)%2 == 0 && isHexString(s) {
+		if b, err := hex.DecodeString(s); err == nil {
+			return b, nil
+		}
 	}
-	if b, err := hex.DecodeString(s); err == nil {
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == 256 {
 		return b, nil
 	}
 	return nil, errors.New("invalid signature format")
+}
+
+func isHexString(s string) bool {
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func CertFindByID(id string, certDB []*Certificate) *Certificate {

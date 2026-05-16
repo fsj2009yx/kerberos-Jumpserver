@@ -17,30 +17,31 @@
 - Client Web 前端已有 Login、Logs、Xterm Terminal 基础页面。
 - Client `/api/logs` 已能以 SSE 形式返回通信包日志。
 
-## 缺失部分
+## 任务状态
 
-### 1. V 端审计持久化
+### V 端审计持久化
+已新增 V 端 SQLite 审计存储，把 PTY 审计事件作为结构化数据落盘。
 
-当前 V 端只有运行日志和内存计数，尚未把 PTY 审计事件作为结构化数据落盘。
-
-需要新增本地审计存储，建议先用 SQLite，记录：
+当前采用 SQLite 作为单机嵌入式落盘方案；若后续需要更高并发写入、跨进程共享或集中审计分析，再迁移到 PostgreSQL。记录：
 
 - 会话 ID
 - Client ID
 - Client IP / AD_c
 - PTY session ID
-- 用户端完整命令输入
+- 用户端完整 PTY 输入流
+- 服务端完整 PTY 输出流
+- 时间戳、事件类型、退出码、签名/哈希索引
 
 ### 2. V 端审计查询接口
 
-文档和 V WebUI 已声明但 Go 后端未实现以下接口：
+文档和 V WebUI 已声明的以下接口已由 Go 后端实现：
 
 - `GET /api/auth_log?limit=100`
 - `GET /api/pty_log?limit=100`
 - `GET /api/audit/session/:id`
 - `GET /api/audit/replay/:id`
 
-需要让这些接口直接读取审计存储，而不是只读取运行日志。
+这些接口直接读取审计存储，而不是只读取运行日志。
 
 ### 3. 会话回放能力
 
@@ -62,15 +63,7 @@ V 端已经对 APP_REP 做 RSA 签名，但 Client 当前解包 APP_REP 时只�
 - Client 配置中加入 V 证书或 V 公钥路径。
 - Client 收到 APP_REP 后先校验 `Seq_Num || Cipher_Data` 的 V 签名。
 - 验签通过后再解密 APP_REP。
-- 验签失败时断开 V 会话并进入 `STATE_ERROR`。
-
-### 4.2 Client本地持久化存储Ticket票据
-
-需要补齐：
-- Client 本地持久化存储 Kerberos 票据（AS/TGS）。
-- 初始化启动时加载票据，避免每次登录都要重新走 Kerberos 认证。
-- 票据未过期则不用登录，直接用现有票据访问 V。
-- 票据过期时自动删除本地票据文件，提示用户重新登录。
+- 验签失败时断开 V 会话并返回错误码
 
 ### 5. 证书校验闭环
 
@@ -120,9 +113,8 @@ V 端已经对 APP_REP 做 RSA 签名，但 Client 当前解包 APP_REP 时只�
 
 ## 完成标准
 
-- 使用 `CLIENT_1/password` 登录后，可以在 V 审计接口查到完整认证记录。
 - 打开终端、输入命令、看到输出、关闭会话后，可以在 V 审计接口查到完整 PTY 帧记录。
 - 即使会话已关闭，历史审计记录仍可查询。
 - Client 能拒绝 V 签名错误的 APP_REP。
 - V 能拒绝 Client 签名错误或证书无效的 APP_REQ。
-- V WebUI 或 Client WebUI 至少有一个页面能查看会话审计和回放。
+- V WebUI 面能查看会话审计和回放。

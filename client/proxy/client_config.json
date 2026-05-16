@@ -9,6 +9,7 @@
     "v_port": 8883,
     "cert_path": "../certs/cert_client.json",
     "privkey_path": "../keys/client_priv.json",
+    "v_cert_path": "../../certs/v_cert.json",
     "service_id": "verify_server",
     "ticket_store_path": "./tickets/ticket.bin"
 }

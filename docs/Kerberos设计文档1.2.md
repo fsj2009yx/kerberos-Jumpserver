@@ -352,9 +352,10 @@ struct Ker_Header {
   "max_clients": 16,
   "cert_path": "./certs/as_cert.json",
   "privkey_path": "./keys/as_priv.json",
-  "log_level": "INFO",
-  "log_file": "./logs/as.log",
-  "security_log_file": "./logs/security.log",
+      "log_level": "INFO",
+      "log_file": "./logs/as.log",
+      "security_log_file": "./logs/security.log",
+      "audit_db_file": "./logs/v_audit.db",
   "webui_host": "0.0.0.0",
   "webui_port": 9881,
   "k_tgs_path": "./keys/k_tgs.bin",
@@ -367,7 +368,7 @@ struct Ker_Header {
 }
 ```
 
-> TGS 节点额外包含 `"k_v_path"` 字段（与 V 共享的长期密钥路径）；V 节点额外包含 `"k_v_path"` 和 `"cli_whitelist"` 字段；Client 节点包含 `"as_host"`、`"as_port"`、`"tgs_host"`、`"tgs_port"`、`"v_host"`、`"v_port"` 等远端地址配置。
+> TGS 节点额外包含 `"k_v_path"` 字段（与 V 共享的长期密钥路径）；V 节点额外包含 `"k_v_path"`、`"cli_whitelist"` 和 `"audit_db_file"` 字段；Client 节点包含 `"as_host"`、`"as_port"`、`"tgs_host"`、`"tgs_port"`、`"v_host"`、`"v_port"`、`"v_cert_path"` 等远端地址与证书配置。
 
 ---
 
@@ -1002,7 +1003,7 @@ type VState struct {
 
 业务层采用 PTY 会话帧语义：`APP_REQ` 发送控制帧（`OPEN/INPUT/RESIZE/SIGNAL/CLOSE`），`APP_REP` 返回事件帧（`OPEN_OK/OUTPUT/EXIT/ERROR`）。
 
-同时为了审计，将用户的 PTY 输入/输出流按日志方式写入数据库，并提供 WEB API 接口
+同时为了审计，将用户的 PTY 输入/输出流写入 V 端 SQLite 审计数据库，并提供 WEB API 接口
 
 ```mermaid
 sequenceDiagram
@@ -1059,6 +1060,8 @@ sequenceDiagram
 | `GET /api/status`             | GET  | V 节点状态             | `{node_id, uptime_s, active_sessions, total_pty_frames, total_rejected_frames}`          |
 | `GET /api/auth_log?limit=100` | GET  | AP 认证日志            | `{logs: [{ts, client_id, client_ip, result, rsa_verify_result}]}`                        |
 | `GET /api/pty_log?limit=100`  | GET  | PTY 帧执行日志         | `{logs: [{ts, client_id, pty_session_id, frame_type, frame_size, rsa_ok, result}]}`      |
+| `GET /api/audit/session/:id`  | GET  | 单个会话完整审计记录   | `{session_id, records: [{event_type, frame_type, payload_b64, record_hash}]}`            |
+| `GET /api/audit/replay/:id`   | GET  | 单个会话最小输出回放帧 | `{session_id, frames: [{ts, payload_b64, frame_size, record_hash}]}`                     |
 | `GET /api/sessions`           | GET  | 活跃 Session 列表      | `{sessions: [{client_id, client_ip, k_cv_sha256, expire_at, last_io_ts, total_frames}]}` |
 | `GET /api/cert/:id`           | GET  | 客户端证书             | `{id, public_key:{n,e}, expire, sign}`                                                   |
 | `POST /api/verify_cert`       | POST | 手动验证证书（调试用） | `{id, result:"ok"/"fail", reason}`                                                       |
@@ -1291,6 +1294,7 @@ class ClientConfig:
     v_addr: tuple[str, int]
     cert_path: str
     privkey_path: str
+    v_cert_path: str
 
 @dataclass
 class TicketBundle:

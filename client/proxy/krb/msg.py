@@ -520,6 +520,7 @@ class ClientConfig:
     v_addr: tuple[str, int]
     cert_path: str
     privkey_path: str
+    v_cert_path: str = ""
     service_id: str = "verify_server"
     ticket_store_path: str = ""
 
