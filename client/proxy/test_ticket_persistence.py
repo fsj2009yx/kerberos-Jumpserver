@@ -1,9 +1,7 @@
 """Tests for ticket persistence feature — run with: pytest test_ticket_persistence.py -v"""
 
-import json
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 from unittest import mock
@@ -14,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from krb.msg import ClientRuntime, ClientConfig, TicketBundle
-from krb.ticket_store import save_tickets, load_tickets, delete_tickets
+from krb.ticket_store import MAGIC, save_tickets, load_tickets, delete_tickets
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +24,7 @@ class TestTicketStore:
 
     @pytest.fixture
     def tmp_path_file(self, tmp_path):
-        return str(tmp_path / "ticket.json")
+        return str(tmp_path / "ticket.bin")
 
     @pytest.fixture
     def fresh_bundle(self):
@@ -55,10 +53,19 @@ class TestTicketStore:
         assert bundle_dict["tgt_expire"] == fresh_bundle.tgt_expire
         assert bundle_dict["tv_expire"] == fresh_bundle.tv_expire
 
+    def test_save_writes_binary_blob(self, tmp_path_file, fresh_bundle):
+        save_tickets(fresh_bundle, "CLIENT_1", "verify_server", tmp_path_file)
+        raw = Path(tmp_path_file).read_bytes()
+
+        assert raw.startswith(MAGIC)
+        assert not raw.startswith(b"{")
+        assert b"key_c_v" not in raw
+
     # ---- expired ticket ----
 
     def test_expired_ticket_returns_none_and_deletes_file(self, tmp_path_file, fresh_bundle):
         fresh_bundle.tv_expire = int(time.time()) - 1
+        fresh_bundle.tgt_expire = int(time.time()) - 1
         save_tickets(fresh_bundle, "CLIENT_1", "verify_server", tmp_path_file)
         assert os.path.isfile(tmp_path_file)
 
@@ -67,36 +74,54 @@ class TestTicketStore:
         assert cid is None
         assert not os.path.exists(tmp_path_file), "expired file should be deleted"
 
+    def test_expired_ticket_v_keeps_valid_tgt(self, tmp_path_file, fresh_bundle):
+        fresh_bundle.tv_expire = int(time.time()) - 1
+        fresh_bundle.tgt_expire = int(time.time()) + 3600
+        save_tickets(fresh_bundle, "CLIENT_1", "verify_server", tmp_path_file)
+
+        bundle_dict, cid, sid = load_tickets(tmp_path_file)
+        assert bundle_dict is not None
+        assert cid == "CLIENT_1"
+        assert sid == "verify_server"
+        assert bundle_dict["key_c_tgs"] == fresh_bundle.key_c_tgs
+        assert bundle_dict["ticket_tgs"] == fresh_bundle.ticket_tgs
+        assert bundle_dict["key_c_v"] == b""
+        assert bundle_dict["ticket_v"] == b""
+        assert os.path.exists(tmp_path_file)
+
     # ---- missing file ----
 
     def test_load_missing_file_returns_none(self, tmp_path_file):
         bundle_dict, cid, sid = load_tickets(tmp_path_file)
         assert bundle_dict is None
 
-    # ---- corrupted json ----
+    # ---- corrupted binary ----
 
-    def test_corrupted_json_returns_none(self, tmp_path_file):
+    def test_corrupted_binary_returns_none(self, tmp_path_file):
         Path(tmp_path_file).parent.mkdir(parents=True, exist_ok=True)
-        Path(tmp_path_file).write_text("not valid json{{{", encoding="utf-8")
+        Path(tmp_path_file).write_bytes(b"not valid binary")
         bundle_dict, _, _ = load_tickets(tmp_path_file)
         assert bundle_dict is None
 
-    # ---- missing required fields ----
+    # ---- truncated binary ----
 
-    def test_missing_required_fields_returns_none(self, tmp_path_file):
-        data = {"client_id": "X", "service_id": "Y"}  # missing key fields
+    def test_truncated_binary_returns_none(self, tmp_path_file):
         Path(tmp_path_file).parent.mkdir(parents=True, exist_ok=True)
-        Path(tmp_path_file).write_text(json.dumps(data), encoding="utf-8")
+        Path(tmp_path_file).write_bytes(MAGIC + b"\x00\x08CLIENT")
         bundle_dict, _, _ = load_tickets(tmp_path_file)
         assert bundle_dict is None
 
-    # ---- empty binary fields ----
+    # ---- service ticket missing but TGT usable ----
 
-    def test_empty_key_c_v_returns_none(self, tmp_path_file, fresh_bundle):
+    def test_empty_key_c_v_loads_valid_tgt(self, tmp_path_file, fresh_bundle):
         fresh_bundle.key_c_v = b""
         save_tickets(fresh_bundle, "CLIENT_1", "verify_server", tmp_path_file)
-        bundle_dict, _, _ = load_tickets(tmp_path_file)
-        assert bundle_dict is None
+        bundle_dict, cid, sid = load_tickets(tmp_path_file)
+        assert bundle_dict is not None
+        assert cid == "CLIENT_1"
+        assert sid == "verify_server"
+        assert bundle_dict["key_c_tgs"] == fresh_bundle.key_c_tgs
+        assert bundle_dict["key_c_v"] == b""
 
     # ---- delete ----
 
@@ -250,7 +275,7 @@ class TestServerTicketLogic:
         self, setup_server_module, tmp_path
     ):
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())
@@ -271,7 +296,7 @@ class TestServerTicketLogic:
 
     def test_load_ignores_expired_tickets(self, setup_server_module, tmp_path):
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())
@@ -289,11 +314,35 @@ class TestServerTicketLogic:
         assert mod.runtime.state == "STATE_INIT"
         assert mod.runtime.bundle.key_c_v == b""
 
+    def test_load_expired_ticket_v_sets_state_as_done(
+        self, setup_server_module, tmp_path
+    ):
+        mod = setup_server_module
+        ticket_path = str(tmp_path / "t.bin")
+        mod.config.ticket_store_path = ticket_path
+
+        now = int(time.time())
+        bundle = TicketBundle(
+            key_c_tgs=b"k" * 8,
+            ticket_tgs=b"t" * 64,
+            key_c_v=b"v" * 8,
+            ticket_v=b"s" * 80,
+            tgt_expire=now + 7200,
+            tv_expire=now - 1,
+        )
+        save_tickets(bundle, "CLIENT_1", "verify_server", ticket_path)
+
+        mod._load_persisted_tickets()
+        assert mod.runtime.state == "STATE_AS_DONE"
+        assert mod.runtime.bundle.key_c_tgs == b"k" * 8
+        assert mod.runtime.bundle.ticket_tgs == b"t" * 64
+        assert mod.runtime.bundle.key_c_v == b""
+
     def test_load_mismatched_client_id_deletes_file(
         self, setup_server_module, tmp_path
     ):
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())
@@ -316,7 +365,7 @@ class TestServerTicketLogic:
     @pytest.mark.asyncio
     async def test_login_cached_skips_as_and_tgs(self, setup_server_module, tmp_path):
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())
@@ -345,7 +394,7 @@ class TestServerTicketLogic:
     ):
         """即使用户提供了密码，但缓存票据有效且用户名匹配时，优先走缓存。"""
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())
@@ -365,6 +414,62 @@ class TestServerTicketLogic:
         assert result.get("cached") is True
         self.mock_as.assert_not_called()
         self.mock_tgs.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_logout_closes_live_v_socket_and_keeps_tickets(
+        self, setup_server_module
+    ):
+        mod = setup_server_module
+        now = int(time.time())
+        sock = mock.MagicMock()
+        mod.runtime.state = "STATE_V_CONNECTED"
+        mod.runtime.v_sock = sock
+        mod.runtime.session_id = "session-1"
+        mod.runtime.bundle = TicketBundle(
+            key_c_tgs=b"k" * 8,
+            ticket_tgs=b"t" * 64,
+            key_c_v=b"v" * 8,
+            ticket_v=b"s" * 80,
+            tgt_expire=now + 7200,
+            tv_expire=now + 3600,
+        )
+
+        result = await mod.logout()
+
+        assert result["closed_v_connection"] is True
+        assert mod.runtime.v_sock is None
+        assert mod.runtime.session_id is None
+        assert mod.runtime.state == "STATE_TGS_DONE"
+        assert mod.runtime.bundle.ticket_v == b"s" * 80
+        sock.shutdown.assert_called_once()
+        sock.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_login_with_valid_tgt_skips_as_without_password(
+        self, setup_server_module, tmp_path
+    ):
+        mod = setup_server_module
+        ticket_path = str(tmp_path / "t.bin")
+        mod.config.ticket_store_path = ticket_path
+
+        now = int(time.time())
+        bundle = TicketBundle(
+            key_c_tgs=b"k" * 8,
+            ticket_tgs=b"t" * 64,
+            key_c_v=b"v" * 8,
+            ticket_v=b"s" * 80,
+            tgt_expire=now + 7200,
+            tv_expire=now - 1,
+        )
+        save_tickets(bundle, "CLIENT_1", "verify_server", ticket_path)
+        mod._load_persisted_tickets()
+
+        result = await mod.login(username="", password="")
+        assert result["state"] == "STATE_V_CONNECTED"
+        assert result.get("cached") is True
+        self.mock_as.assert_not_called()
+        self.mock_tgs.assert_called_once()
+        self.mock_ap.assert_called_once()
 
     # ---- login without cached tickets ----
 
@@ -402,7 +507,7 @@ class TestServerTicketLogic:
     ):
         """缓存的票据是 CLIENT_1，但登录请求是 CLIENT_2 → 应走完整流程。"""
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())
@@ -429,7 +534,7 @@ class TestServerTicketLogic:
     @pytest.mark.asyncio
     async def test_full_login_persists_tickets(self, setup_server_module, tmp_path):
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         result = await mod.login(username="CLIENT_1", password="password")
@@ -449,7 +554,7 @@ class TestServerTicketLogic:
         self, setup_server_module, tmp_path
     ):
         mod = setup_server_module
-        ticket_path = str(tmp_path / "t.json")
+        ticket_path = str(tmp_path / "t.bin")
         mod.config.ticket_store_path = ticket_path
 
         now = int(time.time())

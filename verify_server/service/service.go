@@ -101,16 +101,26 @@ func (s *Service) handleConnection(conn net.Conn) {
 	c.closeOnCancel()
 
 	for {
-		h, payload, err := c.readPacket(s.Config.ReadTimeoutSec, s.Config.MaxPayloadBytes)
+		h, payload, err := c.readPacket(s.Config.MaxPayloadBytes)
 		if err != nil {
 			code := krb.CodeFromError(err)
 			if code != krb.ErrSocketRecv {
-				log.Warnf("[V] read packet failed remote=%s code=%d err=%v", c.remote, code, err)
+				log.Warnf("[V] read packet failed remote=%s code=%s err=%v", c.remote, krb.FormatCode(code), err)
 				_ = c.writeError(c.nextSeq(), code)
 			}
 			return
 		}
 		log.Infof("[V] packet received remote=%s msg_type=%d seq=%d payload_bytes=%d authed=%t", c.remote, h.MsgType, h.SeqNum, len(payload), c.authed)
+		if err := krb.CheckPacketType(h, payload, krb.MsgAPReq, krb.MsgApp); err != nil {
+			code := krb.CodeFromError(err)
+			if peerCode, ok := krb.PeerErrorCode(err); ok {
+				log.Warnf("[V] peer error response received remote=%s seq=%d code=%s desc=%q", c.remote, h.SeqNum, krb.FormatCode(peerCode), krb.CodeDescription(peerCode))
+				return
+			}
+			log.Warnf("[V] invalid message type remote=%s msg_type=%d seq=%d code=%s err=%v", c.remote, h.MsgType, h.SeqNum, krb.FormatCode(code), err)
+			_ = c.writeError(c.nextSeq(), code)
+			return
+		}
 		switch h.MsgType {
 		case krb.MsgAPReq:
 			if s.handleAPReqPacket(c, h, payload) {
@@ -124,7 +134,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 			return
 		default:
 			log.Warnf("[V] invalid message type remote=%s msg_type=%d seq=%d", c.remote, h.MsgType, h.SeqNum)
-			_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrMsgTypeInvalid))
+			_ = c.writeError(c.nextSeq(), krb.ErrMsgTypeInvalid)
 			return
 		}
 	}

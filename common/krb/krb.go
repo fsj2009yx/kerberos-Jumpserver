@@ -203,17 +203,31 @@ func WritePacket(conn net.Conn, msgType uint8, seqNum, timestamp uint32, payload
 	return err
 }
 
-// CheckHeaderType 检查消息类型是否在允许的范围内，或者是否为错误消息类型
+// CheckHeaderType 检查消息类型是否在当前处理入口允许的范围内。
+// MsgErr 表示对端返回的错误响应，不能作为正常业务消息继续解析。
 func CheckHeaderType(msgType uint8, allowed ...uint8) error {
+	if msgType == MsgErr {
+		return errorFromCode(ErrMsgTypeInvalid)
+	}
 	for _, v := range allowed {
 		if v == msgType {
 			return nil
 		}
 	}
-	if msgType == MsgErr {
-		return nil
-	}
 	return errorFromCode(ErrMsgTypeInvalid)
+}
+
+// CheckPacketType 检查完整报文类型。收到 MsgErr 时返回对端错误码，
+// 调用方应记录错误并关闭连接，不应继续进入业务 payload 解析。
+func CheckPacketType(h ProtocolHeader, payload []byte, allowed ...uint8) error {
+	if h.MsgType == MsgErr {
+		code, err := ParseErrorPayload(payload)
+		if err != nil {
+			return err
+		}
+		return peerErrorFromCode(code)
+	}
+	return CheckHeaderType(h.MsgType, allowed...)
 }
 
 // BuildErrorPayload 构建一个错误消息的负载，包含了错误码
@@ -221,6 +235,17 @@ func BuildErrorPayload(code int32) []byte {
 	buf := make([]byte, 4)
 	binary.BigEndian.PutUint32(buf, uint32(code))
 	return buf
+}
+
+func ParseErrorPayload(payload []byte) (int32, error) {
+	if len(payload) != 4 {
+		return KRBOK, errorFromCode(ErrMsgTypeInvalid)
+	}
+	code := int32(binary.BigEndian.Uint32(payload[:4]))
+	if code == KRBOK {
+		return KRBOK, errorFromCode(ErrMsgTypeInvalid)
+	}
+	return code, nil
 }
 
 // LoadKey8 从指定路径加载一个8字节的密钥（DES密钥），

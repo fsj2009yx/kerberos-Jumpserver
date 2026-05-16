@@ -119,23 +119,27 @@ func (s *Service) handleConnection(conn net.Conn) {
 		if err != nil {
 			code := krb.CodeFromError(err)
 			if code != krb.ErrSocketRecv {
-				log.Warnf("[AS] read packet failed remote=%s code=%d err=%v", remote, code, err)
+				log.Warnf("[AS] read packet failed remote=%s code=%s err=%v", remote, krb.FormatCode(code), err)
 				_ = s.writeError(conn, nextConnSeq(), code)
 			}
 			return
 		}
 		log.Infof("[AS] packet received remote=%s msg_type=%d seq=%d payload_bytes=%d", remote, h.MsgType, h.SeqNum, len(payload))
-		//检查协议头中的消息类型是否为 AS 请求，如果不是，则返回一个错误响应并关闭连接。
-		if err := krb.CheckHeaderType(h.MsgType, krb.MsgASReq); err != nil {
+		// 检查协议头中的消息类型是否为 AS 请求；收到对端错误响应时只记录并关闭连接，避免继续解析业务 payload。
+		if err := krb.CheckPacketType(h, payload, krb.MsgASReq); err != nil {
 			code := krb.CodeFromError(err)
-			log.Warnf("[AS] invalid message type remote=%s msg_type=%d code=%d", remote, h.MsgType, code)
+			if peerCode, ok := krb.PeerErrorCode(err); ok {
+				log.Warnf("[AS] peer error response received remote=%s seq=%d code=%s desc=%q", remote, h.SeqNum, krb.FormatCode(peerCode), krb.CodeDescription(peerCode))
+				return
+			}
+			log.Warnf("[AS] invalid message type remote=%s msg_type=%d code=%s err=%v", remote, h.MsgType, krb.FormatCode(code), err)
 			_ = s.writeError(conn, nextConnSeq(), code)
 			return
 		}
 
 		if err := replay.Check(h.Timestamp, h.SeqNum); err != nil {
 			code := krb.CodeFromError(err)
-			log.Warnf("[AS] replay check failed remote=%s seq=%d code=%d", remote, h.SeqNum, code)
+			log.Warnf("[AS] replay check failed remote=%s seq=%d code=%s err=%v", remote, h.SeqNum, krb.FormatCode(code), err)
 			_ = s.writeError(conn, nextConnSeq(), code)
 			return
 		}
@@ -145,7 +149,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 		respType, respPayload, respErr := s.handleASReq(h, payload, peerADc)
 		if respErr != nil {
 			code := krb.CodeFromError(respErr)
-			log.Warnf("[AS] AS_REQ handling failed remote=%s seq=%d code=%d err=%v", remote, h.SeqNum, code, respErr)
+			log.Warnf("[AS] AS_REQ handling failed remote=%s seq=%d code=%s err=%v", remote, h.SeqNum, krb.FormatCode(code), respErr)
 			_ = s.writeError(conn, nextConnSeq(), code)
 			return
 		}
@@ -224,10 +228,10 @@ func (s *Service) handleASReq(h krb.ProtocolHeader, payload []byte, peerADc uint
 func (s *Service) writeError(conn net.Conn, seq uint32, code int32) error {
 	err := krb.WritePacket(conn, krb.MsgErr, seq, uint32(time.Now().Unix()), krb.BuildErrorPayload(code))
 	if err != nil {
-		log.Errorf("[AS] error response send failed seq=%d code=%d err=%v", seq, code, err)
+		log.Errorf("[AS] error response send failed seq=%d code=%s desc=%q err=%v", seq, krb.FormatCode(code), krb.CodeDescription(code), err)
 		return err
 	}
-	log.Warnf("[AS] error response sent seq=%d code=%d", seq, code)
+	log.Warnf("[AS] error response sent seq=%d code=%s desc=%q", seq, krb.FormatCode(code), krb.CodeDescription(code))
 	return nil
 }
 

@@ -29,14 +29,7 @@
 - Client ID
 - Client IP / AD_c
 - PTY session ID
-- 事件类型：auth/open/input/output/resize/signal/close/error
-- 协议序号 seq
-- 时间戳
-- 输入/输出原始字节或 base64 内容
-- 帧大小
-- RSA 验签结果
-- Kerberos 会话过期时间
-- 操作结果和错误码
+- 用户端完整命令输入
 
 ### 2. V 端审计查询接口
 
@@ -114,27 +107,6 @@ V 端已经对 APP_REP 做 RSA 签名，但 Client 当前解包 APP_REP 时只�
 
 前端可以保留现有 Client Logs，同时新增或完善 V Audit 页面。
 
-### 8. 权限和命令策略
-
-即使 V_server 就是目标机，也需要最小策略控制。
-
-建议先做轻量版本：
-
-- `verify_server/config.json` 增加允许登录的 Client 列表。
-- `cli_whitelist` 如果为空表示不限制；非空时仅允许匹配命令。
-- 对危险命令记录高风险标记。
-- 拒绝策略命中时写入审计日志。
-
-### 9. 测试补齐
-
-需要新增测试覆盖审计闭环：
-
-- 登录成功后生成 auth 审计记录。
-- PTY open/input/output/close 均生成审计记录。
-- APP_REQ 签名错误时 V 拒绝并记录失败审计。
-- APP_REP 签名错误时 Client 拒绝。
-- `/api/auth_log` 和 `/api/pty_log` 返回结构化数据。
-- 会话关闭后仍可查询历史审计记录。
 
 ## 建议实施顺序
 

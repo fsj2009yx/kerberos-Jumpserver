@@ -167,6 +167,12 @@ func DecryptAPPReqPlain(cipherBytes []byte, keyCV [8]byte) (APPReqPlain, error) 
 	}, nil
 }
 
+// BuildAPPRepPayload 构建AP-REP消息的负载，包含一个APPRepPayload结构体和错误信息
+// ptyEvent: 终端事件类型，例如窗口大小变化、输入事件等
+// ptySessionID: 终端会话ID，用于区分不同的终端会话
+// exitCode: 终端会话的退出代码，表示会话结束的原因
+// payload: 终端事件的具体数据，例如新的窗口大小、输入内容等
+// keyCV: 用于加密和解密的密钥，长度为8字节
 func BuildAPPRepPayload(ptyEvent uint8, ptySessionID uint32, exitCode int32, payload []byte, keyCV [8]byte, signV func([]byte) ([256]byte, error)) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	body := bytes.NewBuffer(nil)

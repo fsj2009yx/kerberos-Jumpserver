@@ -221,11 +221,10 @@ func (s *Service) handleAppPacket(c *ConnState, h krb.ProtocolHeader, payload []
 	return respType == krb.MsgApp
 }
 
-// 构建APP_REP响应，包含事件类型、pty会话ID、退出码和输出数据等信息，并使用当前会话的KeyCV进行加密和签名
 func (s *Service) buildAPPRep(current *SessionContext, seq uint32, event uint8, ptySessionID uint32, exitCode int32, payload []byte) []byte {
+	//构建回调Sign函数
 	signFn := func(cipherData []byte) ([256]byte, error) {
 		raw := make([]byte, 4+len(cipherData))
-		// 签名内容由序列号和密文数据组成，确保每条消息的签名都是唯一的，并且与消息内容紧密绑定
 		copy(raw[:4], krb.Uint32ToBytes(seq))
 		copy(raw[4:], cipherData)
 		return krb.SignSHA256(raw, s.privKey)

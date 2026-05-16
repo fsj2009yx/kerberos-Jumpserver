@@ -47,9 +47,9 @@ func (c *ConnState) closeOnCancel() {
 	}()
 }
 
-func (c *ConnState) readPacket(readTimeoutSec int, maxPayloadBytes uint32) (krb.ProtocolHeader, []byte, error) {
-	// 设置读取超时，防止连接被占用过久
-	_ = c.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSec) * time.Second))
+func (c *ConnState) readPacket(maxPayloadBytes uint32) (krb.ProtocolHeader, []byte, error) {
+	// 长连接不需要设置读取超时
+	//_ = c.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSec) * time.Second))
 	return krb.ReadPacket(c.conn, maxPayloadBytes)
 }
 
@@ -80,10 +80,10 @@ func (c *ConnState) sendPacketWithSeq(msgType uint8, seq uint32, payload []byte)
 func (c *ConnState) writeError(seq uint32, code int32) error {
 	err := c.sendPacketWithSeq(krb.MsgErr, seq, krb.BuildErrorPayload(code))
 	if err != nil {
-		log.Errorf("[V] error response send failed seq=%d code=%d err=%v", seq, code, err)
+		log.Errorf("[V] error response send failed seq=%d code=%s desc=%q err=%v", seq, krb.FormatCode(code), krb.CodeDescription(code), err)
 		return err
 	}
-	log.Warnf("[V] error response sent seq=%d code=%d", seq, code)
+	log.Warnf("[V] error response sent seq=%d code=%s desc=%q", seq, krb.FormatCode(code), krb.CodeDescription(code))
 	return nil
 }
 

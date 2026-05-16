@@ -3,6 +3,8 @@
 import json
 import hashlib
 import asyncio
+import contextlib
+import socket
 import sys
 import os
 import time
@@ -29,6 +31,62 @@ PTY_EVENT_ERROR = 0x14
 # 全局状态
 runtime = ClientRuntime()
 config = None
+pty_sessions: Dict[str, WebSocket] = {}
+
+
+def _restore_ticket_state_after_disconnect():
+    """Live V connection is gone; keep reusable cached tickets in memory."""
+    now = int(time.time())
+    if runtime.bundle.key_c_v and runtime.bundle.ticket_v and runtime.bundle.tv_expire > now:
+        runtime.state = "STATE_TGS_DONE"
+    elif runtime.bundle.key_c_tgs and runtime.bundle.ticket_tgs and runtime.bundle.tgt_expire > now:
+        runtime.state = "STATE_AS_DONE"
+    else:
+        runtime.state = "STATE_INIT"
+
+
+def _close_runtime_v_socket(reason: str) -> bool:
+    """Close the live AP/APP TCP connection held by the Python proxy."""
+    sock = runtime.v_sock
+    runtime.v_sock = None
+    runtime.session_id = None
+
+    closed = False
+    if sock is not None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            sock.close()
+            closed = True
+        except Exception as e:
+            runtime.logs.append(f"V connection close failed during {reason}: {e}")
+
+    _restore_ticket_state_after_disconnect()
+    if closed:
+        runtime.logs.append(f"V connection closed during {reason}; state={runtime.state}")
+    return closed
+
+
+async def _close_pty_websockets(reason: str):
+    """Best-effort close of frontend PTY WebSocket sessions."""
+    sessions = list(pty_sessions.items())
+    pty_sessions.clear()
+    for _, websocket in sessions:
+        try:
+            await websocket.close(code=1000, reason=reason)
+        except Exception:
+            pass
+    return len(sessions)
+
+
+async def _cleanup_live_client_session(reason: str, close_websockets: bool = False):
+    closed_ws = 0
+    if close_websockets:
+        closed_ws = await _close_pty_websockets(reason)
+    closed_socket = _close_runtime_v_socket(reason)
+    return closed_socket, closed_ws
 
 
 def init_config(config_path: str):
@@ -52,7 +110,7 @@ def init_config(config_path: str):
         cert_path=resolve_path(cfg_data['cert_path']),
         privkey_path=resolve_path(cfg_data['privkey_path']),
         service_id=cfg_data.get('service_id', 'verify_server'),
-        ticket_store_path=resolve_path(cfg_data.get('ticket_store_path', './tickets/ticket.json')),
+        ticket_store_path=resolve_path(cfg_data.get('ticket_store_path', './tickets/ticket.bin')),
     )
 
     # 尝试从本地加载持久化票据
@@ -144,13 +202,8 @@ async def login(username: str = Form(""), password: str = Form("")):
     """
     global runtime
 
-    # 关闭已有 V 连接
-    if runtime.v_sock is not None:
-        try:
-            runtime.v_sock.close()
-        except Exception:
-            pass
-        runtime.v_sock = None
+    # 关闭已有 V 连接，避免重新登录时遗留旧 AP/APP 长连接。
+    await _cleanup_live_client_session("login restart", close_websockets=True)
 
     now = int(time.time())
 
@@ -264,6 +317,17 @@ async def login(username: str = Form(""), password: str = Form("")):
     }
 
 
+@app.post("/api/logout")
+async def logout():
+    """Close live frontend/backend sessions without deleting persisted tickets."""
+    closed_socket, closed_ws = await _cleanup_live_client_session("logout", close_websockets=True)
+    return {
+        "state": runtime.state,
+        "closed_v_connection": closed_socket,
+        "closed_pty_websockets": closed_ws,
+    }
+
+
 def _persist_after_login():
     """登录成功后持久化票据到本地文件。"""
     if not config.ticket_store_path:
@@ -319,10 +383,6 @@ async def get_logs():
             
             await asyncio.sleep(0.1)
     return StreamingResponse(log_stream(), media_type="text/event-stream")
-
-
-# PTY会话管理
-pty_sessions: Dict[str, WebSocket] = {}
 
 
 import base64
@@ -388,6 +448,7 @@ async def websocket_pty(websocket: WebSocket):
     session_id = None
     session_id_ref: Dict[str, Optional[str]] = {"session_id": None}
     output_task = asyncio.create_task(pty_output_pump(websocket, session_id_ref))
+    close_live_connection = False
     try:
         while True:
             data = await websocket.receive_json()
@@ -480,20 +541,32 @@ async def websocket_pty(websocket: WebSocket):
                     if session_id in pty_sessions:
                         del pty_sessions[session_id]
                     session_id_ref["session_id"] = None
+                    _close_runtime_v_socket("pty close")
                     break
     
     except WebSocketDisconnect:
+        close_live_connection = True
         if session_id and session_id in pty_sessions:
             del pty_sessions[session_id]
             session_id_ref["session_id"] = None
     except Exception as e:
+        close_live_connection = True
         if session_id and session_id in pty_sessions:
             del pty_sessions[session_id]
             session_id_ref["session_id"] = None
-        await websocket.send_json({
-            'event': 'error',
-            'message': str(e)
-        })
+        try:
+            await websocket.send_json({
+                'event': 'error',
+                'message': str(e)
+            })
+        except Exception:
+            pass
     finally:
         if output_task:
             output_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await output_task
+        if session_id and session_id in pty_sessions:
+            del pty_sessions[session_id]
+        if close_live_connection:
+            _close_runtime_v_socket("pty websocket disconnect")
