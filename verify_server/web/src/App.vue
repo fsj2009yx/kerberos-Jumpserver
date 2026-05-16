@@ -1,291 +1,77 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import {
+  Connection,
+  DataAnalysis,
+  DocumentChecked,
+  Key,
+  Monitor,
+  Operation,
+  Tickets,
+  VideoPlay,
+} from '@element-plus/icons-vue'
+import { getApiBase, setApiBase } from './api/verify'
 
-const service = {
-  code: 'V',
-  title: 'Verify Server WebUI',
-  subtitle: '应用服务器会话与审计接口',
-  apiPort: 9885,
-  source: 'verify_server/service/web_api.go',
-}
+const route = useRoute()
+const apiBase = ref(getApiBase())
 
-const endpoints = [
-  {
-    id: 'status',
-    method: 'GET',
-    path: '/api/status',
-    summary: 'V 节点状态',
-    schema: '{ node_id, uptime_s, active_sessions, total_pty_frames, total_rejected_frames }',
-    implemented: true,
-  },
-  {
-    id: 'auth_log',
-    method: 'GET',
-    path: '/api/auth_log?limit=100',
-    summary: 'AP 认证日志',
-    schema: '{ logs: [{ ts, client_id, client_ip, result, rsa_verify_result }] }',
-    implemented: true,
-  },
-  {
-    id: 'pty_log',
-    method: 'GET',
-    path: '/api/pty_log?limit=100',
-    summary: 'PTY 帧执行日志',
-    schema: '{ logs: [{ ts, client_id, pty_session_id, frame_type, frame_size, rsa_ok, result }] }',
-    implemented: true,
-  },
-  {
-    id: 'audit_session',
-    method: 'GET',
-    path: '/api/audit/session/:id',
-    summary: '历史会话审计记录',
-    schema: '{ session_id, records: [{ event_type, frame_type, payload_b64, record_hash }] }',
-    implemented: true,
-    needsAuditId: true,
-  },
-  {
-    id: 'audit_replay',
-    method: 'GET',
-    path: '/api/audit/replay/:id',
-    summary: '最小会话输出回放数据',
-    schema: '{ session_id, frames: [{ ts, payload_b64, frame_size, record_hash }] }',
-    implemented: true,
-    needsAuditId: true,
-  },
-  {
-    id: 'sessions',
-    method: 'GET',
-    path: '/api/sessions',
-    summary: '活跃 Session 列表',
-    schema:
-      '{ sessions: [{ client_id, client_ip, k_cv_sha256, expire_at, last_io_ts, total_frames, pty_session_id }] }',
-    implemented: true,
-  },
-  {
-    id: 'cert',
-    method: 'GET',
-    path: '/api/cert/:id',
-    summary: '客户端证书',
-    schema: '{ id, public_key: { n, e }, expire, sign }',
-    implemented: true,
-    needsCertId: true,
-  },
-  {
-    id: 'verify_cert',
-    method: 'POST',
-    path: '/api/verify_cert',
-    summary: '手动验证证书',
-    schema: '{ id, result: "ok" | "fail", reason }',
-    implemented: true,
-    needsCertId: true,
-  },
+const navItems = [
+  { path: '/overview', label: '概览', icon: Monitor },
+  { path: '/sessions', label: '活跃会话', icon: Connection },
+  { path: '/frames', label: 'PTY Frames', icon: Tickets },
+  { path: '/auth', label: '认证日志', icon: DocumentChecked },
+  { path: '/audit-session', label: '会话审计', icon: DataAnalysis },
+  { path: '/replay', label: '输出回放', icon: VideoPlay },
+  { path: '/certificates', label: '证书', icon: Key },
 ]
 
-const apiBase = ref(localStorage.getItem('v-webui-api-base') || '')
-const certId = ref(localStorage.getItem('v-webui-cert-id') || 'CLIENT_1')
-const auditId = ref(localStorage.getItem('v-webui-audit-id') || '1')
-const selectedId = ref(endpoints[0].id)
-const responses = reactive({})
+const activePath = computed(() => route.path)
+const title = computed(() => route.meta.title || 'Verify Server')
 
-for (const endpoint of endpoints) {
-  responses[endpoint.id] = {
-    loading: false,
-    status: null,
-    ok: null,
-    body: '',
-    error: '',
-    updatedAt: '',
-  }
-}
-
-const selectedEndpoint = computed(() => endpoints.find((endpoint) => endpoint.id === selectedId.value))
-const selectedResponse = computed(() => responses[selectedId.value])
-const implementedCount = computed(() => endpoints.filter((endpoint) => endpoint.implemented).length)
-
-function saveSettings() {
-  localStorage.setItem('v-webui-api-base', apiBase.value.trim())
-  localStorage.setItem('v-webui-cert-id', certId.value.trim())
-  localStorage.setItem('v-webui-audit-id', auditId.value.trim())
-}
-
-function endpointPath(endpoint) {
-  if (endpoint.needsCertId) {
-    return `/api/cert/${encodeURIComponent(certId.value.trim() || 'CLIENT_1')}`
-  }
-  if (endpoint.needsAuditId) {
-    const id = encodeURIComponent(auditId.value.trim() || '1')
-    return endpoint.path.replace(':id', id)
-  }
-  return endpoint.path
-}
-
-function endpointUrl(endpoint) {
-  const base = apiBase.value.trim().replace(/\/+$/, '')
-  const path = endpointPath(endpoint)
-  return base ? `${base}${path}` : path
-}
-
-function formatBody(text) {
-  if (!text) {
-    return '(empty response)'
-  }
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2)
-  } catch {
-    return text
-  }
-}
-
-async function requestEndpoint(endpoint) {
-  if (!endpoint?.implemented) {
-    return
-  }
-
-  saveSettings()
-  const state = responses[endpoint.id]
-  state.loading = true
-  state.error = ''
-  state.status = null
-  state.ok = null
-
-  try {
-    const response = await fetch(endpointUrl(endpoint), {
-      method: endpoint.id === 'verify_cert' ? 'POST' : endpoint.method,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: endpoint.id === 'verify_cert' ? JSON.stringify({ id: certId.value.trim() || 'CLIENT_1' }) : undefined,
-    })
-    const text = await response.text()
-    state.status = response.status
-    state.ok = response.ok
-    state.body = formatBody(text)
-    state.updatedAt = new Date().toLocaleTimeString()
-    if (!response.ok) {
-      state.error = `HTTP ${response.status}`
-    }
-  } catch (error) {
-    state.error = error instanceof Error ? error.message : String(error)
-    state.body = ''
-    state.updatedAt = new Date().toLocaleTimeString()
-  } finally {
-    state.loading = false
-  }
-}
-
-async function refreshImplemented() {
-  for (const endpoint of endpoints.filter((item) => item.implemented)) {
-    await requestEndpoint(endpoint)
-  }
-}
-
-onMounted(() => {
-  refreshImplemented()
+watch(apiBase, (value) => {
+  setApiBase(value)
 })
 </script>
 
 <template>
-  <div class="shell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">{{ service.code }}</p>
-        <h1>{{ service.title }}</h1>
-        <p class="subtitle">{{ service.subtitle }}</p>
-      </div>
-      <div class="meta">
-        <span>Go WebUI :{{ service.apiPort }}</span>
-        <span>{{ implementedCount }}/{{ endpoints.length }} 已实现</span>
-        <span>{{ service.source }}</span>
-      </div>
-    </header>
-
-    <section class="controls" aria-label="API controls">
-      <label>
-        <span>API Base</span>
-        <input
-          v-model="apiBase"
-          type="text"
-          placeholder="留空使用 /api 代理"
-          @change="saveSettings"
-        />
-      </label>
-      <label>
-        <span>证书 ID</span>
-        <input v-model="certId" type="text" @change="saveSettings" />
-      </label>
-      <label>
-        <span>审计 Session/PTY ID</span>
-        <input v-model="auditId" type="text" @change="saveSettings" />
-      </label>
-      <button type="button" :disabled="responses.status.loading" @click="refreshImplemented">
-        刷新已实现接口
-      </button>
-    </section>
-
-    <main class="layout">
-      <section class="endpoint-list" aria-label="Endpoint list">
-        <button
-          v-for="endpoint in endpoints"
-          :key="endpoint.id"
-          type="button"
-          class="endpoint"
-          :class="{ active: endpoint.id === selectedId }"
-          @click="selectedId = endpoint.id"
-        >
-          <span class="method">{{ endpoint.method }}</span>
-          <span class="path">{{ endpoint.path }}</span>
-          <span class="summary">{{ endpoint.summary }}</span>
-          <span class="badge" :class="endpoint.implemented ? 'ok' : 'planned'">
-            {{ endpoint.implemented ? '当前可调用' : '文档规划' }}
-          </span>
-        </button>
-      </section>
-
-      <section v-if="selectedEndpoint" class="detail">
-        <div class="detail-head">
-          <div>
-            <span class="method large">{{ selectedEndpoint.method }}</span>
-            <h2>{{ selectedEndpoint.path }}</h2>
-          </div>
-          <button
-            type="button"
-            :disabled="!selectedEndpoint.implemented || selectedResponse.loading"
-            @click="requestEndpoint(selectedEndpoint)"
-          >
-            {{ selectedResponse.loading ? '请求中' : '发送请求' }}
-          </button>
+  <el-container class="app-shell">
+    <el-aside width="236px" class="app-aside">
+      <div class="brand">
+        <span class="brand-mark">V</span>
+        <div>
+          <strong>Verify Server</strong>
+          <span>Web Console</span>
         </div>
+      </div>
 
-        <dl class="spec">
-          <div>
-            <dt>说明</dt>
-            <dd>{{ selectedEndpoint.summary }}</dd>
-          </div>
-          <div>
-            <dt>实际 URL</dt>
-            <dd>{{ endpointUrl(selectedEndpoint) }}</dd>
-          </div>
-          <div>
-            <dt>返回字段</dt>
-            <dd>{{ selectedEndpoint.schema }}</dd>
-          </div>
-          <div v-if="selectedEndpoint.note">
-            <dt>状态</dt>
-            <dd>{{ selectedEndpoint.note }}</dd>
-          </div>
-        </dl>
+      <el-menu :default-active="activePath" router class="side-menu">
+        <el-menu-item v-for="item in navItems" :key="item.path" :index="item.path">
+          <el-icon><component :is="item.icon" /></el-icon>
+          <span>{{ item.label }}</span>
+        </el-menu-item>
+      </el-menu>
+    </el-aside>
 
-        <div class="response-head">
-          <span>响应</span>
-          <span v-if="selectedResponse.updatedAt">更新 {{ selectedResponse.updatedAt }}</span>
-          <span v-if="selectedResponse.status" :class="selectedResponse.ok ? 'text-ok' : 'text-error'">
-            HTTP {{ selectedResponse.status }}
-          </span>
-          <span v-if="selectedResponse.error" class="text-error">{{ selectedResponse.error }}</span>
+    <el-container>
+      <el-header class="app-header">
+        <div>
+          <span class="section-kicker">V Server</span>
+          <h1>{{ title }}</h1>
         </div>
-        <pre>{{ selectedResponse.body || '暂无响应' }}</pre>
-      </section>
-    </main>
-  </div>
+        <div class="header-tools">
+          <el-input
+            v-model="apiBase"
+            clearable
+            placeholder="API Base"
+            :prefix-icon="Operation"
+          />
+        </div>
+      </el-header>
+
+      <el-main class="app-main">
+        <RouterView />
+      </el-main>
+    </el-container>
+  </el-container>
 </template>
