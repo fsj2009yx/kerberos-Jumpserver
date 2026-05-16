@@ -197,6 +197,7 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		LogLevel:         "INFO",
 		LogFile:          filepath.Join(logsDir, "v.log"),
 		SecurityLogFile:  filepath.Join(logsDir, "v_security.log"),
+		AuditDBFile:      filepath.Join(logsDir, "v_audit.db"),
 		KVPath:           kVPath,
 		PTYShell:         "/bin/sh",
 		PTYDefaultTerm:   "xterm-256color",

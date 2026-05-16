@@ -48,6 +48,7 @@ pip install -r requirements.txt
     "v_port": 8883,
     "cert_path": "../certs/cert_client.json",
     "privkey_path": "../keys/client_priv.json",
+    "v_cert_path": "../../certs/v_cert.json",
     "ticket_store_path": "./tickets/ticket.bin"
 }
 ```
@@ -189,6 +190,7 @@ STATE_INIT → STATE_AS_DONE → STATE_TGS_DONE → STATE_V_CONNECTED
 3. 所有网络传输使用大端序字节序
 4. 证书和密钥文件需要预先生成
 5. `Ticket_V` 和 `Key_c_v` 会以二进制块持久化到 `ticket_store_path`
+6. Client 接收 `APP_REP` 时会使用 `v_cert_path` 中的 V 证书验签
 
 ## 测试
 

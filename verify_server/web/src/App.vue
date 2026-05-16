@@ -24,8 +24,7 @@ const endpoints = [
     path: '/api/auth_log?limit=100',
     summary: 'AP 认证日志',
     schema: '{ logs: [{ ts, client_id, client_ip, result, rsa_verify_result }] }',
-    implemented: false,
-    note: '文档定义；当前 Go WebUI 未注册该 handler。',
+    implemented: true,
   },
   {
     id: 'pty_log',
@@ -33,8 +32,25 @@ const endpoints = [
     path: '/api/pty_log?limit=100',
     summary: 'PTY 帧执行日志',
     schema: '{ logs: [{ ts, client_id, pty_session_id, frame_type, frame_size, rsa_ok, result }] }',
-    implemented: false,
-    note: '文档定义；当前 Go WebUI 未注册该 handler。',
+    implemented: true,
+  },
+  {
+    id: 'audit_session',
+    method: 'GET',
+    path: '/api/audit/session/:id',
+    summary: '历史会话审计记录',
+    schema: '{ session_id, records: [{ event_type, frame_type, payload_b64, record_hash }] }',
+    implemented: true,
+    needsAuditId: true,
+  },
+  {
+    id: 'audit_replay',
+    method: 'GET',
+    path: '/api/audit/replay/:id',
+    summary: '最小会话输出回放数据',
+    schema: '{ session_id, frames: [{ ts, payload_b64, frame_size, record_hash }] }',
+    implemented: true,
+    needsAuditId: true,
   },
   {
     id: 'sessions',
@@ -51,9 +67,8 @@ const endpoints = [
     path: '/api/cert/:id',
     summary: '客户端证书',
     schema: '{ id, public_key: { n, e }, expire, sign }',
-    implemented: false,
+    implemented: true,
     needsCertId: true,
-    note: '文档定义；当前 Go WebUI 未注册该 handler。',
   },
   {
     id: 'verify_cert',
@@ -61,13 +76,14 @@ const endpoints = [
     path: '/api/verify_cert',
     summary: '手动验证证书',
     schema: '{ id, result: "ok" | "fail", reason }',
-    implemented: false,
-    note: '文档定义；当前 Go WebUI 未注册该 handler。',
+    implemented: true,
+    needsCertId: true,
   },
 ]
 
 const apiBase = ref(localStorage.getItem('v-webui-api-base') || '')
 const certId = ref(localStorage.getItem('v-webui-cert-id') || 'CLIENT_1')
+const auditId = ref(localStorage.getItem('v-webui-audit-id') || '1')
 const selectedId = ref(endpoints[0].id)
 const responses = reactive({})
 
@@ -89,11 +105,16 @@ const implementedCount = computed(() => endpoints.filter((endpoint) => endpoint.
 function saveSettings() {
   localStorage.setItem('v-webui-api-base', apiBase.value.trim())
   localStorage.setItem('v-webui-cert-id', certId.value.trim())
+  localStorage.setItem('v-webui-audit-id', auditId.value.trim())
 }
 
 function endpointPath(endpoint) {
   if (endpoint.needsCertId) {
     return `/api/cert/${encodeURIComponent(certId.value.trim() || 'CLIENT_1')}`
+  }
+  if (endpoint.needsAuditId) {
+    const id = encodeURIComponent(auditId.value.trim() || '1')
+    return endpoint.path.replace(':id', id)
   }
   return endpoint.path
 }
@@ -129,10 +150,12 @@ async function requestEndpoint(endpoint) {
 
   try {
     const response = await fetch(endpointUrl(endpoint), {
-      method: endpoint.method,
+      method: endpoint.id === 'verify_cert' ? 'POST' : endpoint.method,
       headers: {
         Accept: 'application/json',
+        'Content-Type': 'application/json',
       },
+      body: endpoint.id === 'verify_cert' ? JSON.stringify({ id: certId.value.trim() || 'CLIENT_1' }) : undefined,
     })
     const text = await response.text()
     state.status = response.status
@@ -190,6 +213,10 @@ onMounted(() => {
       <label>
         <span>证书 ID</span>
         <input v-model="certId" type="text" @change="saveSettings" />
+      </label>
+      <label>
+        <span>审计 Session/PTY ID</span>
+        <input v-model="auditId" type="text" @change="saveSettings" />
       </label>
       <button type="button" :disabled="responses.status.loading" @click="refreshImplemented">
         刷新已实现接口

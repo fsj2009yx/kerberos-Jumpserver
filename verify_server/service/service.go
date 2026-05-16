@@ -21,6 +21,7 @@ type Service struct {
 	ptyFrames   uint64
 	privKey     *crypto.RSAKey
 	clientCerts map[string]*krb.Certificate
+	audit       *AuditStore
 	httpServer  *http.Server
 }
 
@@ -45,25 +46,56 @@ func NewService(configPath string) *Service {
 		log.Errorf("[V] load private key failed path=%s err=%v", cfg.PrivKeyPath, err)
 		panic(fmt.Sprintf("load private key: %v", err))
 	}
+	if cfg.CertPath != "" {
+		cert, err := krb.CertLoad(cfg.CertPath)
+		if err != nil {
+			log.Errorf("[V] load own certificate failed path=%s err=%v", cfg.CertPath, err)
+			panic(fmt.Sprintf("load own certificate: %v", err))
+		}
+		if err := krb.CertVerify(cert); err != nil {
+			log.Errorf("[V] verify own certificate failed path=%s err=%v", cfg.CertPath, err)
+			panic(fmt.Sprintf("verify own certificate: %v", err))
+		}
+		if cert.ID != cfg.NodeID {
+			log.Errorf("[V] own certificate id mismatch cert_id=%s node_id=%s", cert.ID, cfg.NodeID)
+			panic("own certificate id mismatch")
+		}
+	}
+	auditPath := cfg.AuditPath()
+	audit, err := NewAuditStore(auditPath)
+	if err != nil {
+		log.Errorf("[V] init audit store failed path=%s err=%v", auditPath, err)
+		panic(fmt.Sprintf("init audit store: %v", err))
+	}
 	s := &Service{
 		Config:      cfg,
 		state:       &VState{IDV: cfg.NodeID, Kv: kv, Sessions: make(map[string]*SessionContext)},
 		startTime:   time.Now(),
 		privKey:     priv,
 		clientCerts: make(map[string]*krb.Certificate),
+		audit:       audit,
 	}
 	for _, item := range cfg.ClientDB {
 		if item.CertPath == "" {
-			continue
+			log.Errorf("[V] client cert missing client=%s", item.ID)
+			panic(fmt.Sprintf("client cert missing: %s", item.ID))
 		}
 		// 加载客户端证书并存储在服务端的内存中，以便在处理客户端请求时能够验证客户端的身份和消息的签名
 		cert, err := krb.CertLoad(item.CertPath)
 		if err != nil {
-			log.Warnf("[V] client cert load failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
-			continue
+			log.Errorf("[V] client cert load failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
+			panic(fmt.Sprintf("load client cert %s: %v", item.ID, err))
+		}
+		if err := krb.CertVerify(cert); err != nil {
+			log.Errorf("[V] client cert verify failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
+			panic(fmt.Sprintf("verify client cert %s: %v", item.ID, err))
+		}
+		if cert.ID != item.ID {
+			log.Errorf("[V] client cert id mismatch config_id=%s cert_id=%s", item.ID, cert.ID)
+			panic(fmt.Sprintf("client cert id mismatch: %s", item.ID))
 		}
 		s.clientCerts[item.ID] = cert
-		log.Infof("[V] client cert loaded client=%s path=%s", item.ID, item.CertPath)
+		log.Infof("[V] client cert loaded and verified client=%s path=%s", item.ID, item.CertPath)
 	}
 	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d pty_shell=%s", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), cfg.PTYShell)
 	return s

@@ -349,6 +349,7 @@ Each node uses a JSON configuration file. The path is specified by the command-l
   "log_level": "INFO",
   "log_file": "./logs/as.log",
   "security_log_file": "./logs/security.log",
+  "audit_db_file": "./logs/v_audit.db",
   "webui_host": "0.0.0.0",
   "webui_port": 9881,
   "k_tgs_path": "./keys/k_tgs.bin",
@@ -361,7 +362,7 @@ Each node uses a JSON configuration file. The path is specified by the command-l
 }
 ```
 
-> A TGS node additionally contains the `"k_v_path"` field, which is the long-term key path shared with V. A V node additionally contains `"k_v_path"` and `"cli_whitelist"`. A Client node contains remote address configuration such as `"as_host"`, `"as_port"`, `"tgs_host"`, `"tgs_port"`, `"v_host"`, and `"v_port"`.
+> A TGS node additionally contains the `"k_v_path"` field, which is the long-term key path shared with V. A V node additionally contains `"k_v_path"`, `"cli_whitelist"`, and `"audit_db_file"`. A Client node contains remote address and certificate configuration such as `"as_host"`, `"as_port"`, `"tgs_host"`, `"tgs_port"`, `"v_host"`, `"v_port"`, and `"v_cert_path"`.
 
 ---
 
@@ -987,7 +988,7 @@ type VState struct {
 
 The business layer uses PTY session frame semantics: `APP_REQ` sends control frames (`OPEN/INPUT/RESIZE/SIGNAL/CLOSE`), and `APP_REP` returns event frames (`OPEN_OK/OUTPUT/EXIT/ERROR`).
 
-For auditing, the user's PTY input/output stream is written to the database as logs, and WEB API interfaces are provided.
+For auditing, the user's PTY input/output stream is written to the V-side SQLite audit database, and WEB API interfaces are provided.
 
 ```mermaid
 sequenceDiagram
@@ -1043,6 +1044,8 @@ sequenceDiagram
 | `GET /api/status`             | GET  | V node status             | `{node_id, uptime_s, active_sessions, total_pty_frames, total_rejected_frames}` |
 | `GET /api/auth_log?limit=100` | GET  | AP authentication logs            | `{logs: [{ts, client_id, client_ip, result, rsa_verify_result}]}` |
 | `GET /api/pty_log?limit=100`  | GET  | PTY frame execution logs         | `{logs: [{ts, client_id, pty_session_id, frame_type, frame_size, rsa_ok, result}]}` |
+| `GET /api/audit/session/:id`  | GET  | Complete audit records for one session | `{session_id, records: [{event_type, frame_type, payload_b64, record_hash}]}` |
+| `GET /api/audit/replay/:id`   | GET  | Minimal replay output frames for one session | `{session_id, frames: [{ts, payload_b64, frame_size, record_hash}]}` |
 | `GET /api/sessions`           | GET  | Active Session list      | `{sessions: [{client_id, client_ip, k_cv_sha256, expire_at, last_io_ts, total_frames}]}` |
 | `GET /api/cert/:id`           | GET  | Client certificate             | `{id, public_key:{n,e}, expire, sign}`                       |
 | `POST /api/verify_cert`       | POST | Manually verify certificate, for debugging | `{id, result:"ok"/"fail", reason}`                           |
@@ -1277,6 +1280,7 @@ class ClientConfig:
     v_addr: tuple[str, int]
     cert_path: str
     privkey_path: str
+    v_cert_path: str
 
 @dataclass
 class TicketBundle:

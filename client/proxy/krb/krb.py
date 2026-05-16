@@ -5,6 +5,7 @@ import time
 import json
 import sys
 import os
+import base64
 from typing import Optional
 
 # 添加当前目录到路径，支持直接运行
@@ -14,7 +15,7 @@ from krb.msg import *
 from krb.logger import log_packet as krb_log_packet, decrypt_payload
 from crypto.des import encrypt_des_cbc, decrypt_des_cbc
 from crypto.sha256 import sha256
-from crypto.rsa import rsa_sign
+from crypto.rsa import rsa_sign, rsa_verify
 
 # 导入调试模块
 try:
@@ -301,14 +302,70 @@ def pack_app_req(id_client: str, key_c_v: bytes, pty_op: int,
     return app_req.to_bytes()
 
 
-def unpack_app_rep(payload: bytes, key_c_v: bytes) -> APPRepPlain:
-    """解包APP_REP"""
+def _cert_body_bytes(cert: dict) -> bytes:
+    body = {
+        "id": cert.get("id", ""),
+        "issuer": cert.get("issuer", ""),
+        "public_key": {
+            "n": cert.get("public_key", {}).get("n", ""),
+            "e": cert.get("public_key", {}).get("e", ""),
+        },
+        "expire": cert.get("expire", ""),
+    }
+    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _decode_cert_signature(value: str) -> bytes:
+    value = (value or "").strip()
+    if not value:
+        raise ValueError("empty certificate signature")
+    if len(value) % 2 == 0 and all(ch in "0123456789abcdefABCDEF" for ch in value):
+        return bytes.fromhex(value)
+    try:
+        return base64.b64decode(value, validate=True)
+    except Exception:
+        return bytes.fromhex(value)
+
+
+def verify_certificate(cert: dict, expected_id: str) -> dict:
+    """验证项目自定义证书，并返回证书中的RSA公钥。"""
+    if cert.get("id") != expected_id:
+        raise ValueError(f"certificate id mismatch: {cert.get('id')} != {expected_id}")
+    expire = cert.get("expire", "")
+    try:
+        expire_ts = int(time.mktime(time.strptime(expire + " 23:59:59", "%Y-%m-%d %H:%M:%S")))
+    except Exception as exc:
+        raise ValueError("certificate expire is invalid") from exc
+    if int(time.time()) > expire_ts:
+        raise ValueError("certificate has expired")
+    pub_key = cert.get("public_key")
+    if not isinstance(pub_key, dict) or not pub_key.get("n") or not pub_key.get("e"):
+        raise ValueError("certificate public key is invalid")
+    sig = _decode_cert_signature(cert.get("sign", ""))
+    if not rsa_verify(sha256(_cert_body_bytes(cert)), sig, pub_key):
+        raise ValueError("certificate signature is invalid")
+    return pub_key
+
+
+def load_verified_v_public_key(cfg: ClientConfig) -> dict:
+    if not cfg.v_cert_path:
+        raise ValueError("v_cert_path is not configured")
+    with open(cfg.v_cert_path, "r", encoding="utf-8") as f:
+        cert = json.load(f)
+    return verify_certificate(cert, cfg.service_id)
+
+
+def unpack_app_rep(payload: bytes, key_c_v: bytes, seq_num: int, v_pub_key: dict) -> APPRepPlain:
+    """解包APP_REP：先验V签名，再解密。"""
     app_rep = APPRepPayload.from_bytes(payload)
+    sign_data = seq_num.to_bytes(4, 'big') + app_rep.cipher_data
+    if not rsa_verify(sha256(sign_data), app_rep.rsa_sign_v, v_pub_key):
+        raise ValueError("APP_REP signature verification failed")
     plain_data = decrypt_des_cbc(key_c_v, app_rep.cipher_data)
     return APPRepPlain.from_bytes(plain_data)
 
 
-def client_app_recv_frame(rt: ClientRuntime, timeout: Optional[float] = None) -> Optional[APPRepPlain]:
+def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig, timeout: Optional[float] = None) -> Optional[APPRepPlain]:
     """从已认证的V连接上读取一个APP响应帧。timeout到期时返回None。"""
     sock = rt.v_sock
     if sock is None:
@@ -327,7 +384,17 @@ def client_app_recv_frame(rt: ClientRuntime, timeout: Optional[float] = None) ->
 
     if header.msg_type != 0x07:
         raise RuntimeError(f"Unexpected APP response type: {header.msg_type}")
-    return unpack_app_rep(resp_payload, rt.bundle.key_c_v)
+    try:
+        v_pub_key = load_verified_v_public_key(cfg)
+        return unpack_app_rep(resp_payload, rt.bundle.key_c_v, header.seq_num, v_pub_key)
+    except Exception:
+        try:
+            sock.close()
+        except Exception:
+            pass
+        rt.v_sock = None
+        rt.state = "STATE_ERROR"
+        raise
 
 
 def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: str) -> int:
@@ -624,7 +691,7 @@ def client_app_send_frame(rt: ClientRuntime, cfg: ClientConfig,
         deadline = time.time() + 5
         while True:
             timeout = max(0.1, deadline - time.time())
-            app_rep = client_app_recv_frame(rt, timeout=timeout)
+            app_rep = client_app_recv_frame(rt, cfg, timeout=timeout)
             if app_rep is None:
                 raise TimeoutError("APP response timeout")
             if expected_events is None or app_rep.pty_event in expected_events:

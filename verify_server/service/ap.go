@@ -87,6 +87,16 @@ func (s *Service) handleAPReqPacket(c *ConnState, h krb.ProtocolHeader, payload 
 	respPayload, sess, err := s.handleAPReq(c.ctx, h, payload)
 	if err != nil {
 		log.Warnf("[V] AP_REQ handling failed remote=%s seq=%d err=%v", c.remote, h.SeqNum, err)
+		code := krb.CodeFromError(err)
+		s.appendAudit(AuditRecord{
+			Kind:      "auth",
+			EventType: "AP_REQ",
+			ClientIP:  c.remote,
+			SeqNum:    h.SeqNum,
+			MsgType:   h.MsgType,
+			Result:    "fail",
+			ErrorCode: krb.CodeName(code),
+		})
 		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
 		return false
 	}
@@ -96,5 +106,21 @@ func (s *Service) handleAPReqPacket(c *ConnState, h krb.ProtocolHeader, payload 
 		return false
 	}
 	log.Infof("[V] AP authentication accepted remote=%s client=%s seq=%d", c.remote, c.current.IDClient, h.SeqNum)
+	s.appendAudit(AuditRecord{
+		Kind:         "auth",
+		EventType:    "AP_REQ",
+		SessionID:    auditSessionID(sess.IDClient, 0),
+		ClientID:     sess.IDClient,
+		ClientIP:     c.remote,
+		ADc:          sess.ADc,
+		SeqNum:       h.SeqNum,
+		MsgType:      h.MsgType,
+		Result:       "ok",
+		FrameType:    "ap_auth",
+		PayloadB64:   auditPayload(payload),
+		FrameSize:    len(payload),
+		ErrorCode:    "",
+		PTYSessionID: sess.PtySessionID,
+	})
 	return true
 }

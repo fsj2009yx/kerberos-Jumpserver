@@ -109,6 +109,7 @@ def init_config(config_path: str):
         v_addr=(cfg_data['v_host'], cfg_data['v_port']),
         cert_path=resolve_path(cfg_data['cert_path']),
         privkey_path=resolve_path(cfg_data['privkey_path']),
+        v_cert_path=resolve_path(cfg_data.get('v_cert_path', '../../certs/v_cert.json')),
         service_id=cfg_data.get('service_id', 'verify_server'),
         ticket_store_path=resolve_path(cfg_data.get('ticket_store_path', './tickets/ticket.bin')),
     )
@@ -424,7 +425,7 @@ async def forward_incidental_events(websocket: WebSocket, events):
 
 async def drain_available_pty_events(websocket: WebSocket, max_frames: int = 8):
     for _ in range(max_frames):
-        event = client_app_recv_frame(runtime, timeout=0.05)
+        event = client_app_recv_frame(runtime, config, timeout=0.05)
         if event is None:
             return
         await send_pty_event(websocket, event)

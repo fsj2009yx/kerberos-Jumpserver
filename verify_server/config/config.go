@@ -34,6 +34,8 @@ type Config struct {
 	LogLevel         string            `json:"log_level"`
 	LogFile          string            `json:"log_file,omitempty"`
 	SecurityLogFile  string            `json:"security_log_file,omitempty"`
+	AuditDBFile      string            `json:"audit_db_file,omitempty"`
+	AuditLogFile     string            `json:"audit_log_file,omitempty"` // legacy alias
 	KVPath           string            `json:"k_v_path,omitempty"`
 	KVHex            string            `json:"k_v_hex,omitempty"`
 	PTYShell         string            `json:"pty_shell"`
@@ -119,10 +121,18 @@ func (c *Config) ensureConfiguredDirs() {
 	ensureFileDir(c.PrivKeyPath)
 	ensureFileDir(c.LogFile)
 	ensureFileDir(c.SecurityLogFile)
+	ensureFileDir(c.AuditPath())
 	ensureFileDir(c.KVPath)
 	for _, client := range c.ClientDB {
 		ensureFileDir(client.CertPath)
 	}
+}
+
+func (c *Config) AuditPath() string {
+	if strings.TrimSpace(c.AuditDBFile) != "" {
+		return c.AuditDBFile
+	}
+	return c.AuditLogFile
 }
 
 func ensureFileDir(path string) {
