@@ -136,7 +136,7 @@ func ParseAPPReqPayload(raw []byte) (APPReqPayload, error) {
 	}, nil
 }
 
-// DecryptAPPReqPlain 解密AP-REQ消息中的密文数据，返回一个APPReqPlain结构体和错误信息
+// DecryptAPPReqPlain 解密APP-REQ消息中的密文数据，返回一个APPReqPlain结构体和错误信息
 func DecryptAPPReqPlain(cipherBytes []byte, keyCV [8]byte) (APPReqPlain, error) {
 	plain, err := crypto.DecryptDESCBC(keyCV, cipherBytes)
 	if err != nil {
