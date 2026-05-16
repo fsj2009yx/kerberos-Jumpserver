@@ -1321,7 +1321,7 @@ The client WEB API listens on port 9883:
 
 | Path | Method | Description | Request/Response |
 |------|------|------|-----------|
-| `POST /api/login` | POST | Trigger AS → TGS → AP three-stage authentication | Request: `{username,password}`; returns: `{state, tgt_expire, tv_expire}` |
+| `POST /api/login` | POST | Trigger AS → TGS → AP three-stage authentication; skip AS/TGS and run only AP when local `Ticket_V` is unexpired | Request: `{username,password}` (may be empty when cache is valid); returns: `{state, tgt_expire, tv_expire}` |
 | `GET /api/state` | GET | Current Client status | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}` |
 | `GET /api/cert` | GET | This Client certificate | `{id,issuer, public_key:{n,e}, expire, sign}` |
 | `SSE /api/logs` | SSE | Communication packet records, returned to the WebUI in real time | `{logs: [{packet_ascii,decode_packet_ascii}]}` |
@@ -1329,7 +1329,7 @@ The client WEB API listens on port 9883:
 
 > Note that the Client network core agent performs network packet packing after obtaining and parsing JSON data through the WEB API.
 >
-> The password obtained by `/api/login` must be **8 bytes** to match DES encryption requirements.
+> The password obtained by `/api/login` must be **8 bytes** during full authentication to match DES encryption requirements. It may be omitted when the local binary ticket cache is valid.
 >
 > `/ws/pty` convention: browser-side binary data is uniformly placed in the `data` field as `base64`. The Client core agent decodes it locally and packs it according to the PTY frame format of APP_REQ/APP_REP in Chapter 9.
 
@@ -2007,7 +2007,7 @@ At this point, if all the above protocol steps are normal, **the Kerberos authen
 
 **Notes:**
 
-- The Client persistently stores Ticket_v in memory or on disk.
+- The Client persistently stores Ticket_v and Key_c_v in memory or in a binary disk block.
 - If the connection is interrupted, the message 5/6 handshake must be performed again during reconnection.
 - If Ticket_v verification shows that it has expired, the server rejects the connection and the Client must perform Kerberos authentication again to obtain a new Ticket.
 - After verification succeeds, V Server creates `sessionContext` in memory to store the mapping between Client_ID and Key_C_V.

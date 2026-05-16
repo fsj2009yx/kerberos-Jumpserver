@@ -1337,7 +1337,7 @@ client WEB API 监听 9883 端口：
 
 | 路径              | 方法      | 说明                            | 请求/返回                                                                                                       |
 | ----------------- | --------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `POST /api/login` | POST      | 触发 AS → TGS → AP 三阶段认证 | 请求：`{username,password}` 返回：`{state, tgt_expire, tv_expire}`                                              |
+| `POST /api/login` | POST      | 触发 AS → TGS → AP 三阶段认证；若本地 `Ticket_V` 未过期则跳过 AS/TGS，只执行 AP 握手 | 请求：`{username,password}`（缓存有效时可为空）返回：`{state, tgt_expire, tv_expire}`                          |
 | `GET /api/state`  | GET       | 当前 Client 状态                | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}`                                                    |
 | `GET /api/cert`   | GET       | 本 Client 证书                  | `{id,issuer, public_key:{n,e}, expire, sign}`                                                                   |
 | `SSE /api/logs`   | SSE       | 通信封包记录(实时回传 WEBUI)    | `{logs: [{packet_ascii,decode_packet_ascii}]}`                                                                  |
@@ -1345,7 +1345,7 @@ client WEB API 监听 9883 端口：
 
 > 注意，Client 网络核心代理在通过 WEB API 拿到 json 数据解析后再进行网络封包
 >
-> `/api/login` 拿到的 password 必须是 **8 字节** 以适配 DES 加密要求
+> `/api/login` 拿到的 password 在全流程认证时必须是 **8 字节** 以适配 DES 加密要求；本地二进制票据缓存有效时可不传 password
 >
 > `/ws/pty` 约定：浏览器侧二进制数据统一 `base64` 放入 `data` 字段，Client 核心代理在本地解码后，按第九章 APP_REQ/APP_REP 的 PTY 帧格式封包
 
@@ -2171,7 +2171,7 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 **注意：**
 
-- Client 持久化保存 Ticket_v 在内存或者磁盘中
+- Client 持久化保存 Ticket_v 和 Key_c_v 在内存或者二进制磁盘块中
 - 如果连接断开，重连时需要重新进行 message5/6 握手
 - 如果 Ticket_v 验证过期，则服务器拒绝连接，Client 需重新 Kerberos 认证获取新的 Ticket
 - V Server 在通过验证后，在内存中建立 `sessionContext` 以存储 Client_ID 和 Key_C_V 的映射关系

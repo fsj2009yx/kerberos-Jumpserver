@@ -110,28 +110,32 @@ func (s *Service) handleConnection(conn net.Conn) {
 	if err != nil {
 		code := krb.CodeFromError(err)
 		if code != krb.ErrSocketRecv {
-			log.Warnf("[TGS] read packet failed remote=%s code=%d err=%v", remote, code, err)
+			log.Warnf("[TGS] read packet failed remote=%s code=%s err=%v", remote, krb.FormatCode(code), err)
 			_ = s.writeError(conn, nextConnSeq(), code)
 		}
 		return
 	}
 	log.Infof("[TGS] packet received remote=%s msg_type=%d seq=%d payload_bytes=%d", remote, h.MsgType, h.SeqNum, len(payload))
-	if err := krb.CheckHeaderType(h.MsgType, krb.MsgTGSReq); err != nil {
+	if err := krb.CheckPacketType(h, payload, krb.MsgTGSReq); err != nil {
 		code := krb.CodeFromError(err)
-		log.Warnf("[TGS] invalid message type remote=%s msg_type=%d code=%d", remote, h.MsgType, code)
+		if peerCode, ok := krb.PeerErrorCode(err); ok {
+			log.Warnf("[TGS] peer error response received remote=%s seq=%d code=%s desc=%q", remote, h.SeqNum, krb.FormatCode(peerCode), krb.CodeDescription(peerCode))
+			return
+		}
+		log.Warnf("[TGS] invalid message type remote=%s msg_type=%d code=%s err=%v", remote, h.MsgType, krb.FormatCode(code), err)
 		_ = s.writeError(conn, nextConnSeq(), code)
 		return
 	}
 	if err := replay.Check(h.Timestamp, h.SeqNum); err != nil {
 		code := krb.CodeFromError(err)
-		log.Warnf("[TGS] replay check failed remote=%s seq=%d code=%d", remote, h.SeqNum, code)
+		log.Warnf("[TGS] replay check failed remote=%s seq=%d code=%s err=%v", remote, h.SeqNum, krb.FormatCode(code), err)
 		_ = s.writeError(conn, nextConnSeq(), code)
 		return
 	}
 	respType, respPayload, respErr := s.handleTGSReq(h, payload, peerADc)
 	if respErr != nil {
 		code := krb.CodeFromError(respErr)
-		log.Warnf("[TGS] TGS_REQ handling failed remote=%s seq=%d code=%d err=%v", remote, h.SeqNum, code, respErr)
+		log.Warnf("[TGS] TGS_REQ handling failed remote=%s seq=%d code=%s err=%v", remote, h.SeqNum, krb.FormatCode(code), respErr)
 		_ = s.writeError(conn, nextConnSeq(), code)
 		return
 	}
@@ -237,10 +241,10 @@ func (s *Service) handleTGSReq(h krb.ProtocolHeader, payload []byte, peerADc uin
 func (s *Service) writeError(conn net.Conn, seq uint32, code int32) error {
 	err := krb.WritePacket(conn, krb.MsgErr, seq, uint32(time.Now().Unix()), krb.BuildErrorPayload(code))
 	if err != nil {
-		log.Errorf("[TGS] error response send failed seq=%d code=%d err=%v", seq, code, err)
+		log.Errorf("[TGS] error response send failed seq=%d code=%s desc=%q err=%v", seq, krb.FormatCode(code), krb.CodeDescription(code), err)
 		return err
 	}
-	log.Warnf("[TGS] error response sent seq=%d code=%d", seq, code)
+	log.Warnf("[TGS] error response sent seq=%d code=%s desc=%q", seq, krb.FormatCode(code), krb.CodeDescription(code))
 	return nil
 }
 

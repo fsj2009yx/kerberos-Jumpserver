@@ -142,7 +142,6 @@ def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes
 
 def recv_packet(sock: socket.socket, runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1") -> tuple[KerHeader, bytes]:
     """接收一个Kerberos协议包"""
-    log_info("Waiting for response from server...")
     
     header_raw = krb_recv_full(sock, 20)
     log_debug(f"Received header: {header_raw.hex()}")

@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Login from "./component/login";
 import Logs from "./component/logs";
 import Terminal from "./component/terminal";
-import { getState, login } from "./utils/api_calls";
+import { getState, login, logout, sendLogoutBeacon } from "./utils/api_calls";
 
 type ViewKey = "login" | "terminal" | "logs";
 
@@ -35,6 +35,24 @@ const App = (): JSX.Element => {
   const loginLabel = isAuthenticated ? "Logout" : "Login";
   const showTerminal = activeView === "terminal";
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return undefined;
+    }
+
+    const handlePageExit = (): void => {
+      sendLogoutBeacon();
+    };
+
+    window.addEventListener("beforeunload", handlePageExit);
+    window.addEventListener("pagehide", handlePageExit);
+
+    return () => {
+      window.removeEventListener("beforeunload", handlePageExit);
+      window.removeEventListener("pagehide", handlePageExit);
+    };
+  }, [isAuthenticated]);
+
   const handleLogin = async (
     username: string,
     password: string,
@@ -65,9 +83,14 @@ const App = (): JSX.Element => {
     }
   };
 
-  const handleLogout = (): void => {
+  const handleLogout = async (): Promise<void> => {
+    try {
+      await logout();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Logout failed.";
+      setMessage(text);
+    }
     setIsAuthenticated(false);
-    setMessage(null);
     setLoginError(null);
     setActiveView("login");
   };

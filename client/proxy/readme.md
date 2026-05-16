@@ -47,7 +47,8 @@ pip install -r requirements.txt
     "v_host": "127.0.0.1",
     "v_port": 8883,
     "cert_path": "../certs/cert_client.json",
-    "privkey_path": "../keys/client_priv.json"
+    "privkey_path": "../keys/client_priv.json",
+    "ticket_store_path": "./tickets/ticket.bin"
 }
 ```
 
@@ -70,6 +71,8 @@ python main.py --config client_config.json --host 0.0.0.0 --port 9883
     "password": "password"
 }
 ```
+
+如果本地二进制票据缓存中的 `Ticket_V` 尚未过期，`username` 和 `password` 可以留空，Client 会直接复用缓存票据执行 AP 握手。
 
 响应：
 ```json
@@ -181,10 +184,11 @@ STATE_INIT → STATE_AS_DONE → STATE_TGS_DONE → STATE_V_CONNECTED
 
 ## 注意事项
 
-1. 密码必须为 8 字节以适配 DES 加密要求
+1. 全流程认证时密码必须为 8 字节以适配 DES 加密要求，复用未过期 `Ticket_V` 时可留空
 2. RSA 私钥必须严格保存在本地，不进行网络传输
 3. 所有网络传输使用大端序字节序
 4. 证书和密钥文件需要预先生成
+5. `Ticket_V` 和 `Key_c_v` 会以二进制块持久化到 `ticket_store_path`
 
 ## 测试
 

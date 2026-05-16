@@ -34,7 +34,6 @@ const Login = ({ error, onLogin }: LoginProps): JSX.Element => {
 					autoComplete="username"
 					value={username}
 					onChange={(event) => setUsername(event.target.value)}
-					required
 					disabled={isSubmitting}
 				/>
 			</div>
@@ -50,7 +49,6 @@ const Login = ({ error, onLogin }: LoginProps): JSX.Element => {
 					minLength={8}
 					maxLength={8}
 					onChange={(event) => setPassword(event.target.value)}
-					required
 					disabled={isSubmitting}
 				/>
 			</div>
