@@ -93,7 +93,7 @@ func sqliteAuditDSN(path string) string {
 	if strings.HasPrefix(path, "file:") {
 		return path
 	}
-	return fmt.Sprintf("file:%s?cache=shared&mode=rwc&_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(path))
+	return fmt.Sprintf("file:%s?mode=rwc&_busy_timeout=5000&_journal_mode=DELETE", filepath.ToSlash(path))
 }
 
 func (s *AuditStore) Close() error {

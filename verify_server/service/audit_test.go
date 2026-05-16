@@ -69,4 +69,16 @@ func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 	if stat, err := os.Stat(dbPath); err != nil || stat.Size() == 0 {
 		t.Fatalf("expected sqlite db on disk, stat=%v err=%v", stat, err)
 	}
+	var journalMode string
+	if err := reopened.db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil {
+		t.Fatalf("query journal mode: %v", err)
+	}
+	if journalMode != "delete" {
+		t.Fatalf("expected sqlite delete journal mode, got %q", journalMode)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(dbPath + suffix); !os.IsNotExist(err) {
+			t.Fatalf("expected no sqlite wal/shm sidecar %s, err=%v", dbPath+suffix, err)
+		}
+	}
 }
