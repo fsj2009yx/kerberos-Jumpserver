@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from krb.msg import ClientRuntime, ClientConfig, TicketBundle
 from krb.krb import client_do_as, client_do_tgs, client_do_ap, client_app_send_frame, client_app_recv_frame
 from krb.ticket_store import save_tickets, load_tickets, delete_tickets
+from debug.debug import log_error, log_info, log_warn
 
 
 PTY_EVENT_OPEN_OK = 0x11
@@ -32,6 +33,17 @@ PTY_EVENT_ERROR = 0x14
 runtime = ClientRuntime()
 config = None
 pty_sessions: Dict[str, WebSocket] = {}
+app_socket_lock = asyncio.Lock()
+
+
+def _runtime_log(message: str, level: str = "info") -> None:
+    runtime.logs.append(message)
+    if level == "error":
+        log_error(message)
+    elif level == "warn":
+        log_warn(message)
+    else:
+        log_info(message)
 
 
 def _restore_ticket_state_after_disconnect():
@@ -61,11 +73,11 @@ def _close_runtime_v_socket(reason: str) -> bool:
             sock.close()
             closed = True
         except Exception as e:
-            runtime.logs.append(f"V connection close failed during {reason}: {e}")
+            _runtime_log(f"V connection close failed during {reason}: {e}", "error")
 
     _restore_ticket_state_after_disconnect()
     if closed:
-        runtime.logs.append(f"V connection closed during {reason}; state={runtime.state}")
+        _runtime_log(f"V connection closed during {reason}; state={runtime.state}")
     return closed
 
 
@@ -425,7 +437,8 @@ async def forward_incidental_events(websocket: WebSocket, events):
 
 async def drain_available_pty_events(websocket: WebSocket, max_frames: int = 8):
     for _ in range(max_frames):
-        event = client_app_recv_frame(runtime, config, timeout=0.05)
+        async with app_socket_lock:
+            event = client_app_recv_frame(runtime, config, timeout=0.05)
         if event is None:
             return
         await send_pty_event(websocket, event)
@@ -433,18 +446,41 @@ async def drain_available_pty_events(websocket: WebSocket, max_frames: int = 8):
 
 async def pty_output_pump(websocket: WebSocket, session_id_ref: Dict[str, Optional[str]]):
     """Continuously drain PTY output for an active session."""
-    while True:
-        if not session_id_ref.get("session_id"):
-            await asyncio.sleep(0.05)
-            continue
-        await drain_available_pty_events(websocket)
-        await asyncio.sleep(0.02)
+    try:
+        while True:
+            if not session_id_ref.get("session_id"):
+                await asyncio.sleep(0.05)
+                continue
+            await drain_available_pty_events(websocket)
+            await asyncio.sleep(0.02)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        message = f"PTY output pump failed: {type(e).__name__}: {e}"
+        _runtime_log(message, "error")
+        with contextlib.suppress(Exception):
+            await websocket.send_json({"event": "error", "message": message})
+
+
+async def send_app_frame_locked(pty_op: int, session_id: int, payload: bytes,
+                                expected_events: set[int], incidental_events: list):
+    async with app_socket_lock:
+        return client_app_send_frame(
+            runtime,
+            config,
+            pty_op,
+            session_id,
+            payload,
+            expected_events,
+            incidental_events,
+        )
 
 
 @app.websocket("/ws/pty")
 async def websocket_pty(websocket: WebSocket):
     """PTY长连接会话"""
     await websocket.accept()
+    _runtime_log("PTY websocket accepted")
 
     session_id = None
     session_id_ref: Dict[str, Optional[str]] = {"session_id": None}
@@ -462,17 +498,16 @@ async def websocket_pty(websocket: WebSocket):
                 term = data.get('term', 'xterm')
 
                 if runtime.state != "STATE_V_CONNECTED":
-                    await websocket.send_json({
-                        'event': 'error',
-                        'message': f'PTY open failed: client not authenticated (state={runtime.state}).'
-                    })
+                    message = f'PTY open failed: client not authenticated (state={runtime.state}).'
+                    _runtime_log(message, "error")
+                    await websocket.send_json({'event': 'error', 'message': message})
                     continue
                 
                 term_raw = term.encode()
                 payload = len(term_raw).to_bytes(2, 'big') + term_raw + cols.to_bytes(2, 'big') + rows.to_bytes(2, 'big')
                 
                 incidental = []
-                result = client_app_send_frame(runtime, config, 0x01, 0, payload, {PTY_EVENT_OPEN_OK, PTY_EVENT_ERROR}, incidental)
+                result = await send_app_frame_locked(0x01, 0, payload, {PTY_EVENT_OPEN_OK, PTY_EVENT_ERROR}, incidental)
                 if result:
                     session_id = str(result.pty_session_id)
                     session_id_ref["session_id"] = session_id
@@ -481,10 +516,9 @@ async def websocket_pty(websocket: WebSocket):
                     await send_pty_event(websocket, result)
                 else:
                     await forward_incidental_events(websocket, incidental)
-                    await websocket.send_json({
-                        'event': 'error',
-                        'message': 'PTY open failed: no response from V server.'
-                    })
+                    message = f"PTY open failed: no response from V server (state={runtime.state}, seq={runtime.seq_num})."
+                    _runtime_log(message, "error")
+                    await websocket.send_json({'event': 'error', 'message': message})
             
             elif op == 'input':
                 # 输入数据 - 按照设计文档：Web -> Client 的 data 字段是 base64 编码
@@ -495,7 +529,7 @@ async def websocket_pty(websocket: WebSocket):
                     # base64 解码
                     payload = base64.b64decode(input_data)
                     incidental = []
-                    result = client_app_send_frame(runtime, config, 0x02, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
+                    result = await send_app_frame_locked(0x02, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
                     await forward_incidental_events(websocket, incidental)
                     if result:
                         await send_pty_event(websocket, result)
@@ -509,7 +543,7 @@ async def websocket_pty(websocket: WebSocket):
                 if session_id:
                     payload = cols.to_bytes(2, 'big') + rows.to_bytes(2, 'big')
                     incidental = []
-                    result = client_app_send_frame(runtime, config, 0x03, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
+                    result = await send_app_frame_locked(0x03, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
                     await forward_incidental_events(websocket, incidental)
                     if result:
                         await send_pty_event(websocket, result)
@@ -524,7 +558,7 @@ async def websocket_pty(websocket: WebSocket):
                     sig_num = signal_map.get(signal, 1)
                     payload = sig_num.to_bytes(1, 'big')
                     incidental = []
-                    result = client_app_send_frame(runtime, config, 0x04, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
+                    result = await send_app_frame_locked(0x04, int(session_id), payload, {PTY_EVENT_OUTPUT, PTY_EVENT_ERROR}, incidental)
                     await forward_incidental_events(websocket, incidental)
                     if result:
                         await send_pty_event(websocket, result)
@@ -535,7 +569,7 @@ async def websocket_pty(websocket: WebSocket):
                 
                 if session_id:
                     incidental = []
-                    result = client_app_send_frame(runtime, config, 0x05, int(session_id), b'', {PTY_EVENT_EXIT, PTY_EVENT_ERROR}, incidental)
+                    result = await send_app_frame_locked(0x05, int(session_id), b'', {PTY_EVENT_EXIT, PTY_EVENT_ERROR}, incidental)
                     await forward_incidental_events(websocket, incidental)
                     if result:
                         await send_pty_event(websocket, result)
@@ -546,11 +580,13 @@ async def websocket_pty(websocket: WebSocket):
                     break
     
     except WebSocketDisconnect:
+        _runtime_log(f"PTY websocket disconnected session={session_id}")
         close_live_connection = True
         if session_id and session_id in pty_sessions:
             del pty_sessions[session_id]
             session_id_ref["session_id"] = None
     except Exception as e:
+        _runtime_log(f"PTY websocket failed session={session_id}: {type(e).__name__}: {e}", "error")
         close_live_connection = True
         if session_id and session_id in pty_sessions:
             del pty_sessions[session_id]

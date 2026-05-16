@@ -1,37 +1,55 @@
 #!/usr/bin/env python3
-"""Generate all certificates and keys for the Kerberos system."""
+"""Generate V and client RSA keys/certificates in one command."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import padding, rsa
-except ImportError as exc:
+except ImportError as exc:  # pragma: no cover
     raise SystemExit(
-        "Missing dependency: cryptography. Install with pip install cryptography"
+        "Missing dependency: cryptography. Run with client/proxy/.venv/bin/python "
+        "or install cryptography in your Python environment."
     ) from exc
 
 
 DEFAULT_ISSUER = "LOCAL_DEBUG_CA"
 DEFAULT_EXPIRE = "2036-12-31"
+DEFAULT_CLIENT_COUNT = 4
+
+
+@dataclass(frozen=True)
+class GeneratedIdentity:
+    entity_id: str
+    private_doc: dict
+    public_doc: dict
+    certificate: dict
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def hex_int(value: int) -> str:
-    return format(value, "x")
+def hex_int(value: int, width: int = 0) -> str:
+    return format(value, "x").zfill(width)
 
 
-def write_json(path: Path, value: dict, mode: int = 0o600) -> None:
+def write_json(path: Path, value: dict, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    path.chmod(mode)
+
+
+def copy_file(src: Path, dst: Path, mode: int) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+    dst.chmod(mode)
 
 
 def generate_rsa_keypair() -> tuple[dict, dict, rsa.RSAPrivateKey]:
@@ -39,9 +57,9 @@ def generate_rsa_keypair() -> tuple[dict, dict, rsa.RSAPrivateKey]:
     pub_numbers = priv.public_key().public_numbers()
     priv_numbers = priv.private_numbers()
     private_doc = {
-        "n": hex_int(pub_numbers.n),
+        "n": hex_int(pub_numbers.n, 512),
         "e": hex_int(pub_numbers.e).zfill(6),
-        "d": hex_int(priv_numbers.d),
+        "d": hex_int(priv_numbers.d, 512),
     }
     public_doc = {
         "n": private_doc["n"],
@@ -63,6 +81,7 @@ def cert_body(entity_id: str, issuer: str, public_doc: dict, expire: str) -> dic
 
 
 def body_bytes(body: dict) -> bytes:
+    # Keep this byte-for-byte compatible with Go common/krb.CertBodyBytes.
     return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
@@ -73,88 +92,139 @@ def create_certificate(entity_id: str, issuer: str, expire: str, public_doc: dic
     return body
 
 
+def generate_identity(entity_id: str, issuer: str, expire: str) -> GeneratedIdentity:
+    private_doc, public_doc, priv = generate_rsa_keypair()
+    cert = create_certificate(entity_id, issuer, expire, public_doc, priv)
+    return GeneratedIdentity(entity_id, private_doc, public_doc, cert)
+
+
+def parse_positive_int(raw: str, field: str) -> int:
+    try:
+        value = int(raw, 10)
+    except ValueError as exc:
+        raise SystemExit(f"{field} must be an integer: {raw}") from exc
+    if value <= 0:
+        raise SystemExit(f"{field} must be greater than 0.")
+    return value
+
+
+def client_ids(count: int) -> list[str]:
+    return [f"CLIENT_{i}" for i in range(1, count + 1)]
+
+
+def client_number(client_id: str) -> int:
+    prefix = "CLIENT_"
+    if not client_id.startswith(prefix):
+        raise SystemExit(f"Unsupported client id format: {client_id}")
+    return parse_positive_int(client_id[len(prefix):], "client number")
+
+
+def write_v_identity(root: Path, issuer: str, expire: str, write_public: bool) -> None:
+    identity = generate_identity("verify_server", issuer, expire)
+    private_path = root / "keys" / "v_priv.json"
+    cert_path = root / "certs" / "v_cert.json"
+
+    write_json(private_path, identity.private_doc, 0o600)
+    write_json(cert_path, identity.certificate, 0o644)
+    print(f"{identity.entity_id:<14} private: {private_path}")
+    print(f"{identity.entity_id:<14} cert:    {cert_path}")
+
+    if write_public:
+        public_path = root / "keys" / "v_pub.json"
+        write_json(public_path, identity.public_doc, 0o644)
+        print(f"{identity.entity_id:<14} public:  {public_path}")
+
+
+def write_client_identity(root: Path, client_id: str, issuer: str, expire: str, write_public: bool) -> tuple[Path, Path]:
+    number = client_number(client_id)
+    identity = generate_identity(client_id, issuer, expire)
+
+    private_path = root / "client" / "keys" / f"client{number}_priv.json"
+    local_cert_path = root / "client" / "certs" / f"cert_client{number}.json"
+    server_cert_path = root / "certs" / f"client{number}_cert.json"
+
+    write_json(private_path, identity.private_doc, 0o600)
+    write_json(local_cert_path, identity.certificate, 0o644)
+    write_json(server_cert_path, identity.certificate, 0o644)
+
+    print(f"{client_id:<14} private: {private_path}")
+    print(f"{client_id:<14} cert:    {local_cert_path}")
+    print(f"{client_id:<14} shared:  {server_cert_path}")
+
+    if write_public:
+        public_path = root / "client" / "keys" / f"client{number}_pub.json"
+        write_json(public_path, identity.public_doc, 0o644)
+        print(f"{client_id:<14} public:  {public_path}")
+
+    return private_path, local_cert_path
+
+
+def write_active_alias(root: Path, active_client: int, private_path: Path, cert_path: Path) -> None:
+    active_private = root / "client" / "keys" / "client_priv.json"
+    active_cert = root / "client" / "certs" / "cert_client.json"
+    copy_file(private_path, active_private, 0o600)
+    copy_file(cert_path, active_cert, 0o644)
+    print(f"CLIENT_{active_client:<7} alias:   {active_private}")
+    print(f"CLIENT_{active_client:<7} alias:   {active_cert}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate all certificates and keys for Kerberos system.")
-    parser.add_argument("--root", type=Path, default=repo_root(), help="project root")
+    parser = argparse.ArgumentParser(
+        description="Generate V and CLIENT_N RSA keys/certificates for this project."
+    )
+    parser.add_argument("--root", type=Path, default=repo_root(), help="project root, default: repository root")
+    parser.add_argument("--issuer", default=DEFAULT_ISSUER, help=f"issuer, default: {DEFAULT_ISSUER}")
+    parser.add_argument("--expire", default=DEFAULT_EXPIRE, help=f"expire date YYYY-MM-DD, default: {DEFAULT_EXPIRE}")
+    parser.add_argument(
+        "--clients",
+        type=lambda raw: parse_positive_int(raw, "clients"),
+        default=DEFAULT_CLIENT_COUNT,
+        help=f"number of CLIENT_N identities to generate, default: {DEFAULT_CLIENT_COUNT}",
+    )
+    parser.add_argument(
+        "--active-client",
+        type=lambda raw: parse_positive_int(raw, "active-client"),
+        default=1,
+        help="CLIENT_N copied to client/keys/client_priv.json and client/certs/cert_client.json, default: 1",
+    )
+    parser.add_argument(
+        "--no-active-alias",
+        action="store_true",
+        help="do not update client/keys/client_priv.json and client/certs/cert_client.json",
+    )
+    parser.add_argument(
+        "--write-public-json",
+        action="store_true",
+        help="also write *_pub.json files for debugging. Normal runtime does not need them.",
+    )
     args = parser.parse_args()
 
+    if args.active_client > args.clients:
+        raise SystemExit("--active-client must be less than or equal to --clients.")
+
     root = args.root.resolve()
-    issuer = DEFAULT_ISSUER
-    expire = DEFAULT_EXPIRE
+    root.mkdir(parents=True, exist_ok=True)
 
-    print("Generating all certificates and keys...\n")
+    print(f"Project root: {root}")
+    print(f"Issuer:       {args.issuer}")
+    print(f"Expire:       {args.expire}")
+    print("")
 
-    # Generate AS server certificate and key
-    print("1. Generating AS server certificate and key...")
-    as_private_doc, as_public_doc, as_priv = generate_rsa_keypair()
-    as_cert = create_certificate("AS", issuer, expire, as_public_doc, as_priv)
-    
-    as_key_dir = root / "as_server" / "keys"
-    as_cert_dir = root / "as_server" / "certs"
-    
-    write_json(as_key_dir / "as_priv.json", as_private_doc)
-    write_json(as_cert_dir / "as_cert.json", as_cert)
-    print(f"   - AS private key: {as_key_dir / 'as_priv.json'}")
-    print(f"   - AS certificate: {as_cert_dir / 'as_cert.json'}")
+    print("Generating V identity...")
+    write_v_identity(root, args.issuer, args.expire, args.write_public_json)
 
-    # Generate TGS server certificate and key
-    print("\n2. Generating TGS server certificate and key...")
-    tgs_private_doc, tgs_public_doc, tgs_priv = generate_rsa_keypair()
-    tgs_cert = create_certificate("TGS", issuer, expire, tgs_public_doc, tgs_priv)
-    
-    tgs_key_dir = root / "tgs_server" / "keys"
-    tgs_cert_dir = root / "tgs_server" / "certs"
-    
-    write_json(tgs_key_dir / "tgs_priv.json", tgs_private_doc)
-    write_json(tgs_cert_dir / "tgs_cert.json", tgs_cert)
-    print(f"   - TGS private key: {tgs_key_dir / 'tgs_priv.json'}")
-    print(f"   - TGS certificate: {tgs_cert_dir / 'tgs_cert.json'}")
+    print("\nGenerating client identities...")
+    active_paths = None
+    for client_id in client_ids(args.clients):
+        private_path, cert_path = write_client_identity(root, client_id, args.issuer, args.expire, args.write_public_json)
+        if client_number(client_id) == args.active_client:
+            active_paths = (private_path, cert_path)
 
-    # Generate V server certificate and key
-    print("\n3. Generating V server certificate and key...")
-    v_private_doc, v_public_doc, v_priv = generate_rsa_keypair()
-    v_cert = create_certificate("verify_server", issuer, expire, v_public_doc, v_priv)
-    
-    v_key_dir = root / "verify_server" / "keys"
-    v_cert_dir = root / "verify_server" / "certs"
-    
-    write_json(v_key_dir / "v_priv.json", v_private_doc)
-    write_json(v_cert_dir / "v_cert.json", v_cert)
-    print(f"   - V private key: {v_key_dir / 'v_priv.json'}")
-    print(f"   - V certificate: {v_cert_dir / 'v_cert.json'}")
+    if not args.no_active_alias and active_paths is not None:
+        print("\nUpdating active client alias...")
+        write_active_alias(root, args.active_client, active_paths[0], active_paths[1])
 
-    # Generate client certificates
-    print("\n4. Generating client certificates...")
-    for i in range(1, 5):
-        client_id = f"CLIENT_{i}"
-        client_private_doc, client_public_doc, client_priv = generate_rsa_keypair()
-        client_cert = create_certificate(client_id, issuer, expire, client_public_doc, client_priv)
-        
-        # Client-side files
-        client_key_dir = root / "client" / "keys"
-        client_cert_dir = root / "client" / "certs"
-        
-        # Server-side files (for verification)
-        server_cert_dir = root / "certs"
-        
-        write_json(client_key_dir / f"client{i}_priv.json", client_private_doc)
-        write_json(client_cert_dir / f"cert_client{i}.json", client_cert)
-        write_json(server_cert_dir / f"client{i}_cert.json", client_cert)
-        
-        # Copy to server-specific directories
-        shutil.copy(server_cert_dir / f"client{i}_cert.json", as_cert_dir / f"client{i}_cert.json")
-        shutil.copy(server_cert_dir / f"client{i}_cert.json", tgs_cert_dir / f"client{i}_cert.json")
-        shutil.copy(server_cert_dir / f"client{i}_cert.json", v_cert_dir / f"client{i}_cert.json")
-        
-        print(f"   - {client_id}: {client_cert_dir / f'cert_client{i}.json'}")
-
-        # Update active client aliases for CLIENT_1
-        if i == 1:
-            shutil.copy(client_key_dir / f"client{i}_priv.json", client_key_dir / "client_priv.json")
-            shutil.copy(client_cert_dir / f"cert_client{i}.json", client_cert_dir / "cert_client.json")
-            print(f"     * Set as active client")
-
-    print("\n✅ All certificates and keys generated successfully!")
+    print("\nDone. Generated only the V/Client certificate files required by the APP signature flow.")
 
 
 if __name__ == "__main__":

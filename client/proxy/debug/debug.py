@@ -6,13 +6,14 @@
 import time
 import struct
 import os
+from pathlib import Path
 from datetime import datetime
 
 # 调试级别
 DEBUG_LEVEL = 3  # 0=关闭, 1=错误, 2=警告, 3=信息, 4=详细, 5=调试
 
 # 日志文件路径
-LOG_FILE = "client_debug.log"
+LOG_FILE = str(Path(__file__).resolve().parents[1] / "client_debug.log")
 
 def set_debug_level(level):
     """设置调试级别"""

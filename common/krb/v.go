@@ -218,6 +218,7 @@ func DecryptAPRepPlain(cipherBytes []byte, keyCV [8]byte) (APRepPlain, error) {
 	}, nil
 }
 
+// VerifyCipherSignature 验证密文数据的RSA签名，返回一个错误信息
 func VerifyCipherSignature(seq uint32, cipherData []byte, sig [256]byte, pub *crypto.RSAKey) error {
 	return errorFromCode(crypto.RsaVerifySignature(seq, cipherData, sig, pub))
 }
