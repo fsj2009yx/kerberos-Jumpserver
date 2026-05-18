@@ -58,15 +58,10 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 	};
 
 	useEffect(() => {
-		if (!containerRef.current || !isAuthenticated || !isVisible) {
+		if (!containerRef.current || !isAuthenticated) {
 			if (!isAuthenticated) {
 				setStatus("disconnected");
 				setErrorMessage("Login required to open terminal.");
-				sessionIdRef.current = null;
-				pendingInputRef.current = [];
-			} else if (!isVisible) {
-				setStatus("disconnected");
-				setErrorMessage(null);
 				sessionIdRef.current = null;
 				pendingInputRef.current = [];
 			}
@@ -229,7 +224,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			fitAddonRef.current = null;
 			terminalRef.current = null;
 		};
-	}, [isAuthenticated, isVisible]);
+	}, [isAuthenticated]);
 
 	useEffect(() => {
 		if (!isVisible) {
