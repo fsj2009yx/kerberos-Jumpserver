@@ -27,6 +27,7 @@ const App = (): JSX.Element => {
   const [message, setMessage] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // useState(false);
+  const [shouldMountTerminal, setShouldMountTerminal] = useState(false);
   const headerRef = useRef<HTMLDivElement | null>(null);
 
   const content = useMemo(() => viewContent[activeView], [activeView]);
@@ -50,6 +51,12 @@ const App = (): JSX.Element => {
       window.removeEventListener("pagehide", handlePageExit);
     };
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (showTerminal) {
+      setShouldMountTerminal(true);
+    }
+  }, [showTerminal]);
 
   useEffect(() => {
     if (!headerRef.current) {
@@ -114,6 +121,7 @@ const App = (): JSX.Element => {
       setMessage(text);
     }
     setIsAuthenticated(false);
+    setShouldMountTerminal(false);
     setLoginError(null);
     setActiveView("logs");
   };
@@ -170,7 +178,9 @@ const App = (): JSX.Element => {
         <section className="content-card">
           {activeView === "logs" ? <Logs /> : null}
           <div className={`terminal-panel${showTerminal ? " is-active" : ""}`}>
-            <Terminal isVisible={showTerminal} isAuthenticated={isAuthenticated} />
+            {shouldMountTerminal ? (
+              <Terminal isVisible={showTerminal} isAuthenticated={isAuthenticated} />
+            ) : null}
           </div>
         </section>
       </main>
