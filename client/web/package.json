@@ -9,18 +9,31 @@
     "start": "npm run build && electron .",
     "dev": "vite --config renderer/vite.config.ts",
     "preview": "vite preview --config renderer/vite.config.ts",
-    "dist": "electron-builder --win portable --publish never"
+    "dist": "electron-builder --win nsis --publish never"
   },
   "build": {
-    "appId": "com.example.myapp",
-    "productName": "MyApp",
+    "appId": "com.securityproject.kerberosclient",
+    "productName": "Kerberos Client",
     "files": [
       "dist/**",
-      "electron/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "../proxy/dist/krb-client-proxy.exe",
+        "to": "proxy/krb-client-proxy.exe"
+      },
+      {
+        "from": "../proxy/client_config.json",
+        "to": "proxy/client_config.json"
+      }
+    ],
     "win": {
-      "target": "portable"
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "dependencies": {
