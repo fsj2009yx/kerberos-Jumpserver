@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   go-and-certs:
-    name: Build Go servers and generate certs
+    name: Build Go servers and collect certs
     runs-on: ubuntu-latest
 
     steps:
@@ -32,18 +32,24 @@ jobs:
       - name: Build Go server binaries
         run: make build
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install certificate script dependencies
-        run: python -m pip install --upgrade pip cryptography
-
-      - name: Generate client and V certificates
+      - name: Validate repository certificates
         run: |
-          python script/client/init_cert.py 1 --root "$PWD"
-          python script/v_server/init_cert.py --root "$PWD"
+          required=(
+            "certs/v_cert.json"
+            "certs/client1_cert.json"
+            "certs/client2_cert.json"
+            "certs/client3_cert.json"
+            "certs/client4_cert.json"
+            "keys/v_priv.json"
+            "client/certs/cert_client.json"
+            "client/keys/client_priv.json"
+          )
+          for path in "${required[@]}"; do
+            test -f "$path" || {
+              echo "Missing repository certificate/key file: $path" >&2
+              exit 1
+            }
+          done
 
       - name: Collect Go and certificate artifacts
         run: |
