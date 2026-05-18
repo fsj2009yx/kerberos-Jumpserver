@@ -115,8 +115,20 @@ def krb_recv_full(sock: socket.socket, need: int) -> bytes:
 
 
 def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes, 
-                runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1"):
+                runtime=None, src_addr=None, dst_addr=None):
     """发送一个Kerberos协议包"""
+    # 从socket获取地址，如果没有提供的话
+    if src_addr is None:
+        try:
+            src_addr = sock.getsockname()[0]
+        except Exception:
+            src_addr = "127.0.0.1"
+    if dst_addr is None:
+        try:
+            dst_addr = sock.getpeername()[0]
+        except Exception:
+            dst_addr = "127.0.0.1"
+    
     timestamp = int(time.time())
     packet = krb_pack(msg_type, seq_num, timestamp, payload)
     
@@ -137,8 +149,19 @@ def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes
     sock.sendall(packet)
 
 
-def recv_packet(sock: socket.socket, runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1") -> tuple[KerHeader, bytes]:
+def recv_packet(sock: socket.socket, runtime=None, src_addr=None, dst_addr=None) -> tuple[KerHeader, bytes]:
     """接收一个Kerberos协议包"""
+    # 从socket获取地址，如果没有提供的话
+    if src_addr is None:
+        try:
+            src_addr = sock.getsockname()[0]
+        except Exception:
+            src_addr = "127.0.0.1"
+    if dst_addr is None:
+        try:
+            dst_addr = sock.getpeername()[0]
+        except Exception:
+            dst_addr = "127.0.0.1"
     
     header_raw = krb_recv_full(sock, 20)
     log_debug(f"Received header: {header_raw.hex()}")
