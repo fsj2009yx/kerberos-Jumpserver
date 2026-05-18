@@ -36,6 +36,7 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+# 格式化整数为十六进制字符串，去掉0x前缀，并且根据width参数补零到指定宽度。
 def hex_int(value: int, width: int = 0) -> str:
     return format(value, "x").zfill(width)
 
@@ -52,6 +53,7 @@ def copy_file(src: Path, dst: Path, mode: int) -> None:
     dst.chmod(mode)
 
 
+# 生成RSA密钥对，并返回私钥文档、公钥文档和私钥对象
 def generate_rsa_keypair() -> tuple[dict, dict, rsa.RSAPrivateKey]:
     priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pub_numbers = priv.public_key().public_numbers()
@@ -68,6 +70,7 @@ def generate_rsa_keypair() -> tuple[dict, dict, rsa.RSAPrivateKey]:
     return private_doc, public_doc, priv
 
 
+# 构造证书主体，包含实体ID、颁发者、公共密钥信息和过期日期
 def cert_body(entity_id: str, issuer: str, public_doc: dict, expire: str) -> dict:
     return {
         "id": entity_id,
