@@ -7,6 +7,45 @@ let proxyProcess: ChildProcessWithoutNullStreams | null = null;
 
 const proxyPort = "9883";
 
+const getAppRoot = (): string => {
+  if (app.isPackaged) {
+    return path.dirname(process.execPath);
+  }
+  return path.resolve(__dirname, "..");
+};
+
+const ensureLogsDir = (): string => {
+  const logsDir = path.join(getAppRoot(), "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  return logsDir;
+};
+
+const appendLog = (fileName: string, message: string): void => {
+  try {
+    const logsDir = ensureLogsDir();
+    const line = `[${new Date().toISOString()}] ${message}\n`;
+    fs.appendFileSync(path.join(logsDir, fileName), line, "utf-8");
+  } catch {
+    // Keep the app running even if the install directory is not writable.
+  }
+};
+
+const logMain = (message: string): void => {
+  console.log(message);
+  appendLog("electron-main.log", message);
+};
+
+const logMainError = (message: string, error?: unknown): void => {
+  const detail = error instanceof Error ? `${message}: ${error.stack ?? error.message}` : message;
+  console.error(detail);
+  appendLog("electron-main.log", detail);
+};
+
+const logProxy = (message: string): void => {
+  console.log(message);
+  appendLog("proxy-process.log", message);
+};
+
 const copyDefaultResource = (from: string, to: string): void => {
   if (fs.existsSync(to)) {
     return;
@@ -99,26 +138,34 @@ const startProxyProcess = (): void => {
   }
 
   const { command, args, cwd } = getProxyPaths();
+  const logsDir = ensureLogsDir();
+  logMain(`logs dir: ${logsDir}`);
+  logMain(`starting proxy command=${command} cwd=${cwd}`);
+
   proxyProcess = spawn(command, args, {
     cwd,
+    env: {
+      ...process.env,
+      KRB_CLIENT_LOG_DIR: logsDir,
+    },
     windowsHide: true,
   });
 
   proxyProcess.stdout.on("data", (data: Buffer) => {
-    console.log(`[proxy] ${data.toString().trimEnd()}`);
+    logProxy(`[proxy:stdout] ${data.toString().trimEnd()}`);
   });
 
   proxyProcess.stderr.on("data", (data: Buffer) => {
-    console.error(`[proxy] ${data.toString().trimEnd()}`);
+    logProxy(`[proxy:stderr] ${data.toString().trimEnd()}`);
   });
 
   proxyProcess.on("exit", (code, signal) => {
-    console.log(`[proxy] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
+    logProxy(`[proxy] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
     proxyProcess = null;
   });
 
   proxyProcess.on("error", (error) => {
-    console.error("[proxy] failed to start", error);
+    logMainError("[proxy] failed to start", error);
     proxyProcess = null;
   });
 };

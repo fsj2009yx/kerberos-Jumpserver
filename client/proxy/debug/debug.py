@@ -13,7 +13,15 @@ from datetime import datetime
 DEBUG_LEVEL = 3  # 0=关闭, 1=错误, 2=警告, 3=信息, 4=详细, 5=调试
 
 # 日志文件路径
-LOG_FILE = str(Path(__file__).resolve().parents[1] / "client_debug.log")
+def _resolve_log_file():
+    log_dir = os.environ.get("KRB_CLIENT_LOG_DIR", "").strip()
+    if log_dir:
+        target_dir = Path(log_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return str(target_dir / "client_debug.log")
+    return str(Path(__file__).resolve().parents[1] / "client_debug.log")
+
+LOG_FILE = _resolve_log_file()
 
 def set_debug_level(level):
     """设置调试级别"""
@@ -36,11 +44,14 @@ def log(level, message, *args):
         message = message % args
     
     # 输出到控制台
-    print(f"{prefix} {message}")
+    print(f"{prefix} {message}", flush=True)
     
     # 输出到文件
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{prefix} {message}\n")
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{prefix} {message}\n")
+    except OSError:
+        pass
 
 def log_error(message, *args):
     """记录错误日志"""
