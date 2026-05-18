@@ -26,6 +26,18 @@
       {
         "from": "../proxy/client_config.json",
         "to": "proxy/client_config.json"
+      },
+      {
+        "from": "../certs/cert_client.json",
+        "to": "certs/cert_client.json"
+      },
+      {
+        "from": "../keys/client_priv.json",
+        "to": "keys/client_priv.json"
+      },
+      {
+        "from": "../../certs/v_cert.json",
+        "to": "certs/v_cert.json"
       }
     ],
     "win": {

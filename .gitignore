@@ -14,11 +14,6 @@ __pycache__/
 /bin/
 *node_modules/
 *dist/
-v_priv.json
-v_cert.json
-client/certs
-client/keys
-certs
 *.log
 /build/as_server
 /build/v_server
