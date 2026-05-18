@@ -328,6 +328,8 @@ async def login(username: str = Form(""), password: str = Form("")):
         "tv_expire": runtime.bundle.tv_expire,
         "session_id": runtime.session_id
     }
+print(f"[DEBUG] runtime.logs count: {len(runtime.logs)}")
+print(f"[DEBUG] PacketLog count: {sum(1 for x in runtime.logs if hasattr(x, 'to_dict'))}")
 
 
 @app.post("/api/logout")

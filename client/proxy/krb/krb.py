@@ -132,11 +132,7 @@ def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes
     }, payload)
     
     # 使用新的日志格式记录完整数据包
-    if runtime:
-        msg_type_names = {0x01: "AS_REQ", 0x02: "AS_REP", 0x03: "TGS_REQ", 0x04: "TGS_REP", 
-                          0x05: "AP_REQ", 0x06: "AP_REP", 0x07: "APP_REQ", 0x08: "APP_REP"}
-        info = f"message{msg_type} Kerberos {msg_type_names.get(msg_type, 'Unknown')}"
-        krb_log_packet(runtime, src_addr, dst_addr, "KRB5", info, packet)
+    
     
     sock.sendall(packet)
 
@@ -175,12 +171,7 @@ def recv_packet(sock: socket.socket, runtime=None, src_addr="127.0.0.1", dst_add
     }, payload_raw)
     
     # 使用新的日志格式记录完整数据包
-    if runtime:
-        msg_type_names = {0x01: "AS_REQ", 0x02: "AS_REP", 0x03: "TGS_REQ", 0x04: "TGS_REP", 
-                          0x05: "AP_REQ", 0x06: "AP_REP", 0x07: "APP_REQ", 0x08: "APP_REP"}
-        info = f"message{header.msg_type} Kerberos {msg_type_names.get(header.msg_type, 'Unknown')}"
-        full_packet = header_raw + payload_raw
-        krb_log_packet(runtime, src_addr, dst_addr, "KRB5", info, full_packet)
+    
     
     return header, payload_raw
 
@@ -422,8 +413,13 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         payload = pack_as_req(username, "TGS", ts1)
         log_debug(f"AS_REQ payload length: {len(payload)} bytes")
         
+         
         # AS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
+        decoded_lines = decrypt_payload(0x01, payload, b'\x00' * 8)  # AS_REQ明文，key不影响
+        krb_log_packet(rt, "127.0.0.1", cfg.as_addr[0], "KRB5",
+                    "AS_REQ - Client authentication request",
+                    krb_pack(0x01, seq, ts1, payload), decoded_lines)  
         header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, "127.0.0.1", cfg.as_addr[0])
         log_info("AS_REQ sent and AS_REP received")
         
