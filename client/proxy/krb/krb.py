@@ -114,20 +114,30 @@ def krb_recv_full(sock: socket.socket, need: int) -> bytes:
     return received
 
 
+def _socket_host(sock: socket.socket, endpoint: str, fallback: str = "unknown") -> str:
+    """从已连接socket读取本端或对端IP，用于日志和包方向标记。"""
+    try:
+        addr = sock.getsockname() if endpoint == "local" else sock.getpeername()
+    except Exception:
+        return fallback
+    if isinstance(addr, tuple) and addr:
+        return str(addr[0])
+    return str(addr) if addr else fallback
+
+
+def _connected_hosts(sock: socket.socket, peer_fallback: str = "unknown") -> tuple[str, str]:
+    """返回当前TCP连接的本端IP和对端IP。"""
+    return _socket_host(sock, "local"), _socket_host(sock, "peer", peer_fallback)
+
+
 def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes, 
                 runtime=None, src_addr=None, dst_addr=None):
     """发送一个Kerberos协议包"""
     # 从socket获取地址，如果没有提供的话
     if src_addr is None:
-        try:
-            src_addr = sock.getsockname()[0]
-        except Exception:
-            src_addr = "127.0.0.1"
+        src_addr = _socket_host(sock, "local")
     if dst_addr is None:
-        try:
-            dst_addr = sock.getpeername()[0]
-        except Exception:
-            dst_addr = "127.0.0.1"
+        dst_addr = _socket_host(sock, "peer")
     
     timestamp = int(time.time())
     packet = krb_pack(msg_type, seq_num, timestamp, payload)
@@ -153,15 +163,9 @@ def recv_packet(sock: socket.socket, runtime=None, src_addr=None, dst_addr=None)
     """接收一个Kerberos协议包"""
     # 从socket获取地址，如果没有提供的话
     if src_addr is None:
-        try:
-            src_addr = sock.getsockname()[0]
-        except Exception:
-            src_addr = "127.0.0.1"
+        src_addr = _socket_host(sock, "peer")
     if dst_addr is None:
-        try:
-            dst_addr = sock.getpeername()[0]
-        except Exception:
-            dst_addr = "127.0.0.1"
+        dst_addr = _socket_host(sock, "local")
     
     header_raw = krb_recv_full(sock, 20)
     log_debug(f"Received header: {header_raw.hex()}")
@@ -200,7 +204,7 @@ def recv_packet(sock: socket.socket, runtime=None, src_addr=None, dst_addr=None)
 
 
 def send_recv_packet(sock: socket.socket, msg_type: int, seq_num: int,
-                     payload: bytes, runtime=None, src_addr="127.0.0.1", dst_addr="127.0.0.1") -> tuple[KerHeader, bytes]:
+                     payload: bytes, runtime=None, src_addr=None, dst_addr=None) -> tuple[KerHeader, bytes]:
     """发送请求并接收响应"""
     send_packet(sock, msg_type, seq_num, payload, runtime, src_addr, dst_addr)
     return recv_packet(sock, runtime, dst_addr, src_addr)
@@ -428,6 +432,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         log_debug(f"Connecting to {cfg.as_addr}...")
         sock.connect(cfg.as_addr)
+        local_host, peer_host = _connected_hosts(sock, cfg.as_addr[0])
         log_info("Connected to AS server")
         
         # 构造AS_REQ
@@ -440,10 +445,10 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         # AS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
         decoded_lines = decrypt_payload(0x01, payload, b'\x00' * 8)  # AS_REQ明文，key不影响
-        krb_log_packet(rt, "127.0.0.1", cfg.as_addr[0], "KRB5",
+        krb_log_packet(rt, local_host, peer_host, "KRB5",
                     "AS_REQ - Client authentication request",
                     krb_pack(0x01, seq, ts1, payload), decoded_lines)  
-        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, "127.0.0.1", cfg.as_addr[0])
+        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, local_host, peer_host)
         log_info("AS_REQ sent and AS_REP received")
         
         # 解密响应（password作为Kc）
@@ -461,7 +466,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         header_for_log = KerHeader.from_bytes(full_packet[:20])
         msg_payload = full_packet[20:20 + header_for_log.total_len] if header_for_log.total_len > 0 else full_packet[20:]
         decoded_lines = decrypt_payload(0x02, msg_payload, kc)
-        krb_log_packet(rt, cfg.as_addr[0], "127.0.0.1", "KRB5",
+        krb_log_packet(rt, peer_host, local_host, "KRB5",
                        "AS_REP decrypted - Key_c_tgs, Ticket_TGS", full_packet, decoded_lines)
 
         # 更新运行时状态
@@ -512,6 +517,7 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         log_debug(f"Connecting to {cfg.tgs_addr}...")
         sock.connect(cfg.tgs_addr)
+        local_host, peer_host = _connected_hosts(sock, cfg.tgs_addr[0])
         log_info("Connected to TGS server")
         
         # 构造TGS_REQ
@@ -538,12 +544,12 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
 
         # 使用统一解密函数解密TGS_REQ (Ticket_TGS需要K_tgs可能无法解密，Authenticator_c用Key_c_tgs解密)
         decoded_lines = decrypt_payload(0x03, payload, rt.bundle.key_c_tgs)
-        krb_log_packet(rt, "127.0.0.1", cfg.tgs_addr[0], "KRB5",
+        krb_log_packet(rt, local_host, peer_host, "KRB5",
                        "TGS_REQ decrypted - Ticket_TGS, Authenticator_c", tgs_req_packet, decoded_lines)
 
         # TGS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
-        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, "127.0.0.1", cfg.tgs_addr[0])
+        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, local_host, peer_host)
         log_info("TGS_REQ sent and TGS_REP received")
         
         # 解密响应
@@ -557,7 +563,7 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         header_for_log = KerHeader.from_bytes(full_packet[:20])
         msg_payload = full_packet[20:20 + header_for_log.total_len] if header_for_log.total_len > 0 else full_packet[20:]
         decoded_lines = decrypt_payload(0x04, msg_payload, rt.bundle.key_c_tgs)
-        krb_log_packet(rt, cfg.tgs_addr[0], "127.0.0.1", "KRB5",
+        krb_log_packet(rt, peer_host, local_host, "KRB5",
                        "TGS_REP decrypted - Key_c_v, Ticket_V", full_packet, decoded_lines)
 
         # 更新运行时状态
@@ -608,6 +614,7 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         log_debug(f"Connecting to {cfg.v_addr}...")
         sock.connect(cfg.v_addr)
+        local_host, peer_host = _connected_hosts(sock, cfg.v_addr[0])
         log_info("Connected to V server")
         
         # 构造AP_REQ
@@ -638,10 +645,10 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
 
         # 使用统一解密函数解密AP_REQ中的Authenticator_c (Ticket_V需要K_v，客户端无法解密)
         decoded_lines = decrypt_payload(0x05, payload, rt.bundle.key_c_v)
-        krb_log_packet(rt, "127.0.0.1", cfg.v_addr[0], "KRB5",
+        krb_log_packet(rt, local_host, peer_host, "KRB5",
                        "AP_REQ decrypted - Ticket_V, Authenticator_c", ap_req_packet, decoded_lines)
 
-        header, resp_payload = send_recv_packet(sock, 0x05, seq, payload, rt, "127.0.0.1", cfg.v_addr[0])
+        header, resp_payload = send_recv_packet(sock, 0x05, seq, payload, rt, local_host, peer_host)
         log_info("AP_REQ sent and AP_REP received")
         
         # 验证响应
@@ -653,7 +660,7 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         # 记录AP_REP解密后的日志
         full_packet = header.to_bytes() + resp_payload
         decoded_lines = decrypt_payload(0x06, resp_payload, rt.bundle.key_c_v)
-        krb_log_packet(rt, cfg.v_addr[0], "127.0.0.1", "KRB5",
+        krb_log_packet(rt, peer_host, local_host, "KRB5",
                        "AP_REP decrypted - TS5+1 Verification", full_packet, decoded_lines)
 
         log_info(f"AP_REP TS verification passed (TS5+1 = {ts5 + 1})")
