@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { animate, stagger } from "motion";
 import Login from "./component/login";
 import Logs from "./component/logs";
 import Terminal from "./component/terminal";
 import { getState, login, logout, sendLogoutBeacon } from "./utils/api_calls";
 
-type ViewKey = "login" | "terminal" | "logs";
+type ViewKey = "terminal" | "logs";
 
 type ViewState = {
   title: string;
@@ -12,10 +13,6 @@ type ViewState = {
 };
 
 const viewContent: Record<ViewKey, ViewState> = {
-  login: {
-    title: "Login",
-    body: "Welcome. This is the login view.",
-  },
   terminal: {
     title: "Terminal",
   },
@@ -26,14 +23,15 @@ const viewContent: Record<ViewKey, ViewState> = {
 };
 
 const App = (): JSX.Element => {
-  const [activeView, setActiveView] = useState<ViewKey>("login");
+  const [activeView, setActiveView] = useState<ViewKey>("logs");
   const [message, setMessage] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false); // useState(false);
+  const headerRef = useRef<HTMLDivElement | null>(null);
 
   const content = useMemo(() => viewContent[activeView], [activeView]);
-  const loginLabel = isAuthenticated ? "Logout" : "Login";
   const showTerminal = activeView === "terminal";
+  const isLoginScreen = !isAuthenticated;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -52,6 +50,31 @@ const App = (): JSX.Element => {
       window.removeEventListener("pagehide", handlePageExit);
     };
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!headerRef.current) {
+      return undefined;
+    }
+
+    const tabs = Array.from(
+      headerRef.current.querySelectorAll<HTMLElement>(".app-tab"),
+    );
+    const controls = [] as Array<{ cancel: () => void }>;
+
+    if (tabs.length) {
+      controls.push(
+        animate(
+          tabs,
+          { opacity: [0, 1], y: [10, 0] },
+          { delay: stagger(0.05), duration: 0.35, easing: "ease-out" },
+        ),
+      );
+    }
+
+    return () => {
+      controls.forEach((control) => control.cancel());
+    };
+  }, [activeView]);
 
   const handleLogin = async (
     username: string,
@@ -92,77 +115,60 @@ const App = (): JSX.Element => {
     }
     setIsAuthenticated(false);
     setLoginError(null);
-    setActiveView("login");
+    setActiveView("logs");
   };
+
+  if (isLoginScreen) {
+    return <Login error={loginError} onLogin={handleLogin} />;
+  }
 
   return (
     <div className="layout">
-      <aside className="menu-panel">
-        <div className="menu-title">Kerberos Client</div>
-        <nav className="menu-list" aria-label="Main menu">
-          {Object.keys(viewContent).map((key) => {
-            const view = key as ViewKey;
-            const isLocked = !isAuthenticated && view !== "login";
-            return (
+      <main className="main-panel">
+        <header className="app-header" ref={headerRef}>
+          <div className="app-header-top">
+            <div>
+              <p className="app-eyebrow">Kerberos Client</p>
+              <h1 className="app-title">{content.title}</h1>
+            </div>
+            <div className="app-actions">
+              <div className="api-status">
+                {message ? <span className="health-status">{message}</span> : null}
+                <button
+                  className="action-button"
+                  type="button"
+                  onClick={handleStateCheck}
+                >
+                  Check API State
+                </button>
+              </div>
+              <button className="action-button" type="button" onClick={handleLogout}>
+                Logout
+              </button>
+            </div>
+          </div>
+          <div
+            className="app-header-bottom"
+            role="tablist"
+            aria-label="Views"
+          >
+            {(Object.keys(viewContent) as ViewKey[]).map((view) => (
               <button
                 key={view}
-                className={`menu-item${activeView === view ? " is-active" : ""}`}
+                className={`app-tab${activeView === view ? " is-active" : ""}`}
                 type="button"
-                onClick={() => {
-                  if (!isLocked) {
-                    setActiveView(view);
-                  }
-                }}
-                disabled={isLocked}
-                aria-disabled={isLocked}
+                role="tab"
+                aria-selected={activeView === view}
+                onClick={() => setActiveView(view)}
               >
-                {view === "login" ? loginLabel : viewContent[view].title}
+                {viewContent[view].title}
               </button>
-            );
-          })}
-        </nav>
-      </aside>
-
-      <main className="main-panel">
-        <header className="main-header">
-          <h1>{activeView === "login" ? loginLabel : content.title}</h1>
-          {isAuthenticated ? (
-            <div className="health-area">
-              <button id="healthBtn" type="button" onClick={handleStateCheck}>
-                Check API State
-              </button>
-              {message ? (
-                <span className="health-status">{message}</span>
-              ) : null}
-            </div>
-          ) : null}
+            ))}
+          </div>
         </header>
 
         <section className="content-card">
-          {activeView === "login" ? (
-            isAuthenticated ? (
-              <div className="logout-panel">
-                <p className="logout-text">Press here to log out.</p>
-                <button
-                  className="logout-button"
-                  type="button"
-                  onClick={handleLogout}
-                >
-                  Log out
-                </button>
-              </div>
-            ) : (
-              <Login error={loginError} onLogin={handleLogin} />
-            )
-          ) : activeView === "logs" ? (
-            <Logs />
-          ) : (
-            (content.body ?? (
-              <>
-                <p>{content.body}</p>
-              </>
-            ))
-          )}
+          {activeView === "logs" ? <Logs /> : null}
           <div className={`terminal-panel${showTerminal ? " is-active" : ""}`}>
             <Terminal isVisible={showTerminal} isAuthenticated={isAuthenticated} />
           </div>
