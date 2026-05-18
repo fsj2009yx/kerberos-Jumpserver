@@ -102,14 +102,7 @@ export default function Logs() {
 	}, []);
 
 	return (
-		<section className=" logs-panel">
-			{/* <header className="logs-header">
-				<div>
-					<p className="logs-kicker">Packet Log Console</p>
-					<h2>Kerberos Wire Capture</h2>
-				</div>
-				<span className="logs-status">Mock stream active</span>
-			</header> */}
+		<section className="logs-panel">
 			<div className="logs-surface">
 				<div className="logs-layout">
 					<div className="logs-list">
@@ -137,7 +130,7 @@ export default function Logs() {
 							</button>
 						))}
 					</div>
-					<div className="logs-detail">
+					<div className="logs-detail w-full">
 						{(() => {
 							const active = logs.find((log) => log.id === selectedId);
 							if (!active) {
@@ -146,7 +139,7 @@ export default function Logs() {
 								);
 							}
 							return (
-								<div className="logs-grid">
+								<div className="logs-grid w-full">
 									<div className="logs-column">
 										<h3>Packet Details</h3>
 										<div className="logs-box">
