@@ -24,3 +24,4 @@ certs
 /build/v_server
 /build/tgs_server
 ticket.bin
+v_audit.db
