@@ -7,7 +7,8 @@ setup(
     install_requires=[
         "fastapi>=0.100.0",
         "uvicorn>=0.23.2",
-        "websockets>=11.0.3"
+        "websockets>=11.0.3",
+        "python-multipart>=0.0.9"
     ],
     entry_points={
         "console_scripts": [
