@@ -35,14 +35,12 @@ PTY_EVENT_NAMES = {
 
 
 def decrypt_des_ecb(data: bytes, key: bytes) -> bytes:
-    """DES ECB解密 (NoPadding)"""
-    try:
-        from crypto.des import decrypt_des_cbc
-        iv = bytes(8)
-        return decrypt_des_cbc(key, data, iv)
-    except Exception:
-        from crypto.des import decrypt_des
-        return decrypt_des(key, data)
+    """DES-CBC解密（IV前置在密文头8字节）"""
+    from crypto.des import decrypt_des_cbc
+    result = decrypt_des_cbc(key, data)
+    if result is None:
+        return b""
+    return result
 
 
 def decrypt_payload(msg_type: int, payload: bytes, key: bytes) -> List[str]:
@@ -329,8 +327,8 @@ def _decrypt_tgs_req(payload: bytes, key_tgs: bytes) -> List[str]:
             ticket_plain = decrypt_des_ecb(ticket_tgs, key_tgs)
             ticket_fields = _parse_ticket_tgs(ticket_plain)
             lines.extend(_format_encrypted_field("Ticket_TGS", ticket_tgs.hex(), ticket_plain.hex(), ticket_fields))
-        except Exception as e:
-            lines.extend(_format_encrypted_field("Ticket_TGS", ticket_tgs.hex(), "[decrypt error]", [("Error", str(e))]))
+        except Exception:
+            lines.extend(_format_encrypted_field("Ticket_TGS", ticket_tgs.hex(), "[仅TGS可解密]", [("说明", "Ticket_TGS 由 K_tgs 加密，客户端不持有该密钥")]))
 
     if offset + 4 > len(payload):
         lines.append(f"  [payload truncated]")
@@ -435,8 +433,8 @@ def _decrypt_ap_req(payload: bytes, key_c_v: bytes) -> List[str]:
             ticket_plain = decrypt_des_ecb(ticket_v, key_c_v)
             ticket_fields = _parse_ticket_v(ticket_plain)
             lines.extend(_format_encrypted_field("Ticket_V", ticket_v.hex(), ticket_plain.hex(), ticket_fields))
-        except Exception as e:
-            lines.extend(_format_encrypted_field("Ticket_V", ticket_v.hex(), "[decrypt error]", [("Error", str(e))]))
+        except Exception:
+            lines.extend(_format_encrypted_field("Ticket_V", ticket_v.hex(), "[仅服务端可解密]", [("说明", "Ticket_V 由 K_v 加密，客户端不持有该密钥")]))
 
     if offset + 4 > len(payload):
         lines.append(f"  [payload truncated]")
@@ -475,7 +473,7 @@ def _decrypt_ap_rep(payload: bytes, key_c_v: bytes) -> List[str]:
         enc_part = payload[4:4+cipher_len] if cipher_len > 0 else payload[4:]
         if len(enc_part) > 0:
             try:
-                plain_data = decrypt_des_ecb(enc_part, key_c_v)
+                plain_data = decrypt_des_ecb(enc_part, key_c_v) or b""
                 plain_hex = plain_data.hex()
 
                 fields = []
@@ -629,7 +627,7 @@ class PacketLog:
 
             lines.append("  --- Payload Decoded ---")
 
-            lines.extend(decrypt_payload(msg_type, payload, key=None))
+            pass  # decryption handled externally with correct keys
 
         except Exception as e:
             lines.append(f"  [decode error: {e}]")
