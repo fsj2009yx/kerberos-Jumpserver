@@ -47,7 +47,7 @@ class KerHeader:
             raise ValueError("Header too short")
         return cls(
             magic=int.from_bytes(data[0:2], 'big'),
-            version=data[2],
+            version=data[2], 
             msg_type=data[3],
             total_len=int.from_bytes(data[4:8], 'big'),
             seq_num=int.from_bytes(data[8:12], 'big'),
