@@ -46,55 +46,27 @@ const logProxy = (message: string): void => {
   appendLog("proxy-process.log", message);
 };
 
-const copyDefaultResource = (from: string, to: string): void => {
-  if (fs.existsSync(to)) {
-    return;
-  }
-
-  if (!fs.existsSync(from)) {
-    throw new Error(`Packaged resource is missing: ${from}`);
-  }
-
-  fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.cpSync(from, to, { recursive: true });
+const getConfigRoot = (): string => {
+  return path.join(getAppRoot(), "config");
 };
 
-const writeRuntimeConfig = (configPath: string, runtimeRoot: string, runtimeProxyDir: string): void => {
-  const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Record<string, unknown>;
-  const runtimeConfig = {
-    ...config,
-    cert_path: path.join(runtimeRoot, "certs", "cert_client.json"),
-    privkey_path: path.join(runtimeRoot, "keys", "client_priv.json"),
-    v_cert_path: path.join(runtimeRoot, "certs", "v_cert.json"),
-    ticket_store_path: path.join(runtimeProxyDir, "tickets", "ticket.bin"),
-  };
-
-  fs.writeFileSync(configPath, `${JSON.stringify(runtimeConfig, null, 4)}\n`, "utf-8");
+const assertPathExists = (targetPath: string, label: string): void => {
+  if (!fs.existsSync(targetPath)) {
+    throw new Error(`Packaged ${label} is missing: ${targetPath}`);
+  }
 };
 
 const preparePackagedProxyRuntime = (): { command: string; args: string[]; cwd: string } => {
   const resourceProxyDir = path.join(process.resourcesPath, "proxy");
-  const runtimeRoot = app.getPath("userData");
-  const runtimeProxyDir = path.join(runtimeRoot, "proxy");
-  const runtimeConfigPath = path.join(runtimeProxyDir, "client_config.json");
+  const configRoot = getConfigRoot();
+  const configProxyDir = path.join(configRoot, "proxy");
+  const runtimeConfigPath = path.join(configProxyDir, "client_config.json");
 
-  copyDefaultResource(
-    path.join(resourceProxyDir, "client_config.json"),
-    runtimeConfigPath,
-  );
-  copyDefaultResource(
-    path.join(process.resourcesPath, "certs", "cert_client.json"),
-    path.join(runtimeRoot, "certs", "cert_client.json"),
-  );
-  copyDefaultResource(
-    path.join(process.resourcesPath, "certs", "v_cert.json"),
-    path.join(runtimeRoot, "certs", "v_cert.json"),
-  );
-  copyDefaultResource(
-    path.join(process.resourcesPath, "keys", "client_priv.json"),
-    path.join(runtimeRoot, "keys", "client_priv.json"),
-  );
-  writeRuntimeConfig(runtimeConfigPath, runtimeRoot, runtimeProxyDir);
+  assertPathExists(path.join(resourceProxyDir, "krb-client-proxy.exe"), "proxy executable");
+  assertPathExists(runtimeConfigPath, "client config");
+  assertPathExists(path.join(configRoot, "certs", "cert_client.json"), "client certificate");
+  assertPathExists(path.join(configRoot, "certs", "v_cert.json"), "V certificate");
+  assertPathExists(path.join(configRoot, "keys", "client_priv.json"), "client private key");
 
   return {
     command: path.join(resourceProxyDir, "krb-client-proxy.exe"),
@@ -106,7 +78,7 @@ const preparePackagedProxyRuntime = (): { command: string; args: string[]; cwd: 
       "--port",
       proxyPort,
     ],
-    cwd: runtimeProxyDir,
+    cwd: configProxyDir,
   };
 };
 
