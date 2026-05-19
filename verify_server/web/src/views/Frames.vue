@@ -37,6 +37,7 @@ const filteredLogs = computed(() => {
     const payload = decodeBase64(item.payload_b64)
     return [
       item.client_id,
+      item.client_ip,
       item.session_id,
       item.pty_session_id,
       item.event_type,

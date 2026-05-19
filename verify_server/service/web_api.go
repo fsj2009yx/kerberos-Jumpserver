@@ -36,7 +36,8 @@ func (s *Service) runWebUI() {
 			sum := krb.Hash256(sess.KeyCV[:])
 			out = append(out, map[string]any{
 				"client_id":      sess.IDClient,
-				"client_ip":      sess.ADc,
+				"client_ip":      sess.ClientIP,
+				"ad_c":           sess.ADc,
 				"k_cv_sha256":    hex.EncodeToString(sum[:8]),
 				"expire_at":      sess.ExpireAt,
 				"last_io_ts":     sess.LastIO.Unix(),

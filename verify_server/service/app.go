@@ -21,6 +21,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			EventType:    "APP_REQ",
 			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
+			ClientIP:     current.ClientIP,
 			ADc:          current.ADc,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
@@ -41,6 +42,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			EventType:    "APP_REQ",
 			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
+			ClientIP:     current.ClientIP,
 			ADc:          current.ADc,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
@@ -61,6 +63,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			EventType:    "APP_REQ",
 			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
+			ClientIP:     current.ClientIP,
 			ADc:          current.ADc,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
@@ -82,6 +85,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			EventType:       "APP_REQ",
 			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
+			ClientIP:        current.ClientIP,
 			ADc:             current.ADc,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
@@ -106,6 +110,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			EventType:       "APP_REQ",
 			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
+			ClientIP:        current.ClientIP,
 			ADc:             current.ADc,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
@@ -126,6 +131,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			EventType:       "APP_REQ",
 			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
+			ClientIP:        current.ClientIP,
 			ADc:             current.ADc,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
@@ -151,6 +157,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		EventType:       "APP_REQ",
 		SessionID:       auditSessionID(current.IDClient, plain.PtySessionID),
 		ClientID:        current.IDClient,
+		ClientIP:        current.ClientIP,
 		ADc:             current.ADc,
 		PTYSessionID:    plain.PtySessionID,
 		Direction:       "C->V",
@@ -223,7 +230,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 				current.LastIO = at
 			},
 			IsClosed: func() bool {
-				return current.Closed
+				return current.Closed.Load()
 			},
 		})
 		out := []byte(fmt.Sprintf("open ok: %s", current.IDClient))
@@ -274,18 +281,13 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		log.Infof("[V] pty signal sent client=%s pty_session_id=%d signal=%d", current.IDClient, current.PtySessionID, sig)
 		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventOutput, current.PtySessionID, -1, []byte("signal ok")), nil
 	case pty.OpClose:
-		if current.Cancel != nil {
-			current.Cancel()
-		}
+		current.Closed.Store(true)
 		if current.PTY != nil {
 			if err := current.PTY.Close(); err != nil {
 				log.Warnf("[V] pty close returned error client=%s err=%v", current.IDClient, err)
 			}
 		}
-		s.state.mu.Lock()
-		delete(s.state.Sessions, current.IDClient)
-		s.state.mu.Unlock()
-		current.Closed = true
+		s.deleteSession(current)
 		log.Infof("[V] pty session closed client=%s pty_session_id=%d total_frames=%d", current.IDClient, current.PtySessionID, atomic.LoadUint64(&current.TotalFrames))
 		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventExit, current.PtySessionID, 0, []byte("bye")), nil
 	default:
@@ -316,7 +318,7 @@ func (s *Service) handleAppPacket(c *ConnState, h krb.ProtocolHeader, payload []
 	if err := c.sendPacketWithSeq(respType, respSeq, respPayload); err != nil {
 		return false
 	}
-	if c.current != nil && c.current.Closed {
+	if c.current != nil && c.current.Closed.Load() {
 		log.Infof("[V] session closed remote=%s client=%s pty_session_id=%d", c.remote, c.current.IDClient, c.current.PtySessionID)
 		return false
 	}
@@ -341,6 +343,7 @@ func (s *Service) buildAPPRep(current *SessionContext, seq uint32, event uint8, 
 		EventType:    "APP_REP",
 		SessionID:    auditSessionID(current.IDClient, ptySessionID),
 		ClientID:     current.IDClient,
+		ClientIP:     current.ClientIP,
 		ADc:          current.ADc,
 		PTYSessionID: ptySessionID,
 		Direction:    "V->C",

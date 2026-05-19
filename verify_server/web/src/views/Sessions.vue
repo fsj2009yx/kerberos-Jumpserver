@@ -15,7 +15,7 @@ const rows = computed(() => {
     if (!text) {
       return true
     }
-    return [item.client_id, item.pty_session_id, item.client_ip, item.k_cv_sha256]
+    return [item.client_id, item.pty_session_id, item.client_ip, item.ad_c, item.k_cv_sha256]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(text))
   })
@@ -56,8 +56,9 @@ onMounted(load)
     <section class="panel">
       <el-table v-loading="loading" :data="rows" stripe>
         <el-table-column prop="client_id" label="Client" min-width="140" />
+        <el-table-column prop="client_ip" label="Remote" min-width="170" />
         <el-table-column label="ADc" min-width="170">
-          <template #default="{ row }">{{ formatADc(row.client_ip) }}</template>
+          <template #default="{ row }">{{ formatADc(row.ad_c) }}</template>
         </el-table-column>
         <el-table-column prop="pty_session_id" label="PTY" width="90" />
         <el-table-column label="Frames" width="110">

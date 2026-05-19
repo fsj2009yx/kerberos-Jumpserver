@@ -54,6 +54,10 @@ const resultType = computed(() => tagTypeForResult(props.record.result))
           <dd>{{ record.client_id || '-' }}</dd>
         </div>
         <div>
+          <dt>Remote</dt>
+          <dd>{{ record.client_ip || '-' }}</dd>
+        </div>
+        <div>
           <dt>Session</dt>
           <dd>
             <RouterLink v-if="auditKey" :to="{ name: 'audit-session', query: { id: auditKey } }">

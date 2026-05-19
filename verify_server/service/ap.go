@@ -101,6 +101,7 @@ func (s *Service) handleAPReqPacket(c *ConnState, h krb.ProtocolHeader, payload 
 		return false
 	}
 	c.authed = true
+	sess.ClientIP = c.remote
 	c.current = sess
 	if err := c.sendPacket(krb.MsgAPRep, respPayload); err != nil {
 		return false
