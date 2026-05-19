@@ -99,7 +99,6 @@ jobs:
             --onefile `
             --clean `
             --paths . `
-            --add-data "client_config.json;." `
             --hidden-import uvicorn.logging `
             --hidden-import uvicorn.loops `
             --hidden-import uvicorn.loops.auto `
@@ -115,6 +114,23 @@ jobs:
       - name: Build renderer and main process
         working-directory: client/web
         run: npm run build
+
+      - name: Validate Electron package inputs
+        shell: pwsh
+        run: |
+          $required = @(
+            "client/proxy/dist/krb-client-proxy.exe",
+            "client/web/package-config/proxy/client_config.json",
+            "client/certs/cert_client.json",
+            "client/keys/client_priv.json",
+            "certs/v_cert.json"
+          )
+          foreach ($path in $required) {
+            if (!(Test-Path $path -PathType Leaf)) {
+              Write-Error "Missing Electron package input: $path"
+              exit 1
+            }
+          }
 
       - name: Package Electron app
         working-directory: client/web

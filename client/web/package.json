@@ -22,22 +22,24 @@
       {
         "from": "../proxy/dist/krb-client-proxy.exe",
         "to": "proxy/krb-client-proxy.exe"
-      },
+      }
+    ],
+    "extraFiles": [
       {
-        "from": "../proxy/client_config.json",
-        "to": "proxy/client_config.json"
+        "from": "package-config/proxy/client_config.json",
+        "to": "config/proxy/client_config.json"
       },
       {
         "from": "../certs/cert_client.json",
-        "to": "certs/cert_client.json"
+        "to": "config/certs/cert_client.json"
       },
       {
         "from": "../keys/client_priv.json",
-        "to": "keys/client_priv.json"
+        "to": "config/keys/client_priv.json"
       },
       {
         "from": "../../certs/v_cert.json",
-        "to": "certs/v_cert.json"
+        "to": "config/certs/v_cert.json"
       }
     ],
     "win": {
