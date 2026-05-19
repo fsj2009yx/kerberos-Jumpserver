@@ -129,6 +129,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 
 	// 为每个新连接创建一个连接状态对象，并在处理过程中维护该对象的状态
 	c := NewConnState(conn, s.Config.AntiReplayWindow)
+	defer s.cleanupConnection(c)
 	defer c.close()
 	c.closeOnCancel()
 
@@ -174,4 +175,38 @@ func (s *Service) handleConnection(conn net.Conn) {
 
 func (s *Service) nextSessionID() uint32 {
 	return atomic.AddUint32(&s.nextPtyID, 1)
+}
+
+func (s *Service) cleanupConnection(c *ConnState) {
+	if s == nil || c == nil || c.current == nil {
+		return
+	}
+	s.cleanupSession(c.current, "connection close")
+}
+
+func (s *Service) cleanupSession(sess *SessionContext, reason string) {
+	if s == nil || sess == nil || sess.Closed.Swap(true) {
+		return
+	}
+	if sess.Cancel != nil {
+		sess.Cancel()
+	}
+	if sess.PTY != nil {
+		if err := sess.PTY.Close(); err != nil {
+			log.Warnf("[V] pty cleanup returned error client=%s pty_session_id=%d reason=%s err=%v", sess.IDClient, sess.PtySessionID, reason, err)
+		}
+	}
+	s.deleteSession(sess)
+	log.Infof("[V] session cleaned client=%s pty_session_id=%d reason=%s total_frames=%d", sess.IDClient, sess.PtySessionID, reason, atomic.LoadUint64(&sess.TotalFrames))
+}
+
+func (s *Service) deleteSession(sess *SessionContext) {
+	if s == nil || s.state == nil || sess == nil {
+		return
+	}
+	s.state.mu.Lock()
+	if s.state.Sessions != nil && s.state.Sessions[sess.IDClient] == sess {
+		delete(s.state.Sessions, sess.IDClient)
+	}
+	s.state.mu.Unlock()
 }

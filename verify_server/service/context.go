@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"security-project/verify_server/service/pty"
@@ -10,6 +11,7 @@ import (
 
 type SessionContext struct {
 	IDClient     string
+	ClientIP     string
 	ADc          uint32
 	KeyCV        [8]byte
 	ExpireAt     uint32
@@ -19,7 +21,7 @@ type SessionContext struct {
 	PTY          *pty.Session
 	Ctx          context.Context
 	Cancel       context.CancelFunc
-	Closed       bool
+	Closed       atomic.Bool
 }
 
 type VState struct {

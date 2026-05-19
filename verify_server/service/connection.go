@@ -71,6 +71,7 @@ func (c *ConnState) sendPacketWithSeq(msgType uint8, seq uint32, payload []byte)
 	err := krb.WritePacket(c.conn, msgType, seq, uint32(time.Now().Unix()), payload)
 	if err != nil {
 		log.Errorf("[V] packet send failed remote=%s msg_type=%d seq=%d err=%v", c.remote, msgType, seq, err)
+		c.cancel()
 		return err
 	}
 	log.Infof("[V] packet sent remote=%s msg_type=%d seq=%d payload_bytes=%d", c.remote, msgType, seq, len(payload))
