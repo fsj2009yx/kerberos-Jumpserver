@@ -1,6 +1,5 @@
 GO ?= go
 GOCACHE ?= $(CURDIR)/.gocache
-CGO_ENABLED ?= 0
 LINUX_GOARCH ?= amd64
 WIN_GOARCH ?= amd64
 GOFLAGS ?=
