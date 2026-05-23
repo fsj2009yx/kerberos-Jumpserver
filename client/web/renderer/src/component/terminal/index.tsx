@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { getTargets, type TargetInfo } from "../../utils/api_calls";
 import "@xterm/xterm/css/xterm.css"
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -39,6 +40,9 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [targets, setTargets] = useState<TargetInfo[]>([]);
+	const [targetsLoaded, setTargetsLoaded] = useState(false);
+	const [selectedTargetId, setSelectedTargetId] = useState("");
 
 	const statusLabel = useMemo(() => {
 		switch (status) {
@@ -58,7 +62,40 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 	};
 
 	useEffect(() => {
-		if (!containerRef.current || !isAuthenticated) {
+		if (!isAuthenticated) {
+			setTargets([]);
+			setTargetsLoaded(false);
+			setSelectedTargetId("");
+			return;
+		}
+
+		let cancelled = false;
+		setTargetsLoaded(false);
+		getTargets()
+			.then((items) => {
+				if (cancelled) {
+					return;
+				}
+				setTargets(items);
+				setSelectedTargetId((current) => current || items[0]?.id || "");
+				setTargetsLoaded(true);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				const text = error instanceof Error ? error.message : "Failed to load targets.";
+				setErrorMessage(text);
+				setTargetsLoaded(true);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [isAuthenticated]);
+
+	useEffect(() => {
+		if (!containerRef.current || !isAuthenticated || !targetsLoaded) {
 			if (!isAuthenticated) {
 				setStatus("disconnected");
 				setErrorMessage("Login required to open terminal.");
@@ -135,10 +172,10 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 
 		socket.onopen = () => {
 			setStatus("connected");
-			terminal.writeln("Connected. Opening PTY session...");
+			terminal.writeln(selectedTargetId ? `Connected. Opening SSH target ${selectedTargetId}...` : "Connected. Opening local PTY session...");
 			const cols = terminal.cols || 80;
 			const rows = terminal.rows || 24;
-			sendJson({ op: "open", cols, rows, term: "xterm-256color" });
+			sendJson({ op: "open", target_id: selectedTargetId, cols, rows, term: "xterm-256color" });
 		};
 
 		socket.onmessage = (event) => {
@@ -224,7 +261,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			fitAddonRef.current = null;
 			terminalRef.current = null;
 		};
-	}, [isAuthenticated]);
+	}, [isAuthenticated, selectedTargetId, targetsLoaded]);
 
 	useEffect(() => {
 		if (!isVisible) {
@@ -251,6 +288,23 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 						<div className="terminal-error-inline">{errorMessage}</div>
 					) : null}
 				</div>
+				<label className="terminal-target-control">
+					<span>Target</span>
+					<input
+						list="terminal-targets"
+						value={selectedTargetId}
+						disabled={status !== "disconnected"}
+						placeholder="optional target_id"
+						onChange={(event) => setSelectedTargetId(event.target.value)}
+					/>
+					<datalist id="terminal-targets">
+						{targets.map((target) => (
+							<option key={target.id} value={target.id}>
+								{target.id}
+							</option>
+						))}
+					</datalist>
+				</label>
 			</div>
 			<div
 				className="terminal-body"
