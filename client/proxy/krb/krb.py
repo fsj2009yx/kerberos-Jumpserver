@@ -760,7 +760,8 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         log_state_change(rt.state, "STATE_V_CONNECTED")
         rt.state = "STATE_V_CONNECTED"
         
-        # 保存socket用于后续业务通信；V 服务要求 AP 和 APP 在同一 TCP 连接上。
+        # 保存AP socket供调用方验证AP_REP；登录完成后代理层会关闭它。
+        # 后续APP业务使用新的TCP连接，并由V根据APP_REQ外层ID_Client绑定已认证会话。
         rt.session_id = f"session_{ts5}"
         rt.v_sock = sock
         log_info(f"Session ID: {rt.session_id}")

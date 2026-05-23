@@ -31,6 +31,9 @@ type AuditRecord struct {
 	ClientID        string `json:"client_id,omitempty"`
 	ClientIP        string `json:"client_ip,omitempty"`
 	ADc             uint32 `json:"ad_c,omitempty"`
+	TargetID        string `json:"target_id,omitempty"`
+	TargetHost      string `json:"target_host,omitempty"`
+	SSHUser         string `json:"ssh_user,omitempty"`
 	PTYSessionID    uint32 `json:"pty_session_id,omitempty"`
 	Direction       string `json:"direction,omitempty"`
 	SeqNum          uint32 `json:"seq_num,omitempty"`
@@ -115,6 +118,9 @@ func (s *AuditStore) ensureSchema() error {
 			client_id TEXT,
 			client_ip TEXT,
 			ad_c INTEGER,
+			target_id TEXT,
+			target_host TEXT,
+			ssh_user TEXT,
 			pty_session_id INTEGER,
 			direction TEXT,
 			seq_num INTEGER,
@@ -137,6 +143,15 @@ func (s *AuditStore) ensureSchema() error {
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE audit_records ADD COLUMN target_id TEXT`,
+		`ALTER TABLE audit_records ADD COLUMN target_host TEXT`,
+		`ALTER TABLE audit_records ADD COLUMN ssh_user TEXT`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			return err
 		}
 	}
@@ -172,11 +187,11 @@ func (s *AuditStore) Append(rec AuditRecord) error {
 	rec.RecordHash = auditRecordHash(rec)
 
 	_, err := s.db.Exec(`INSERT INTO audit_records (
-		id, ts, time, kind, event_type, session_id, client_id, client_ip, ad_c, pty_session_id,
+		id, ts, time, kind, event_type, session_id, client_id, client_ip, ad_c, target_id, target_host, ssh_user, pty_session_id,
 		direction, seq_num, msg_type, pty_op, pty_event, frame_type, frame_size, payload_b64,
 		exit_code, result, error_code, rsa_verify_result, prev_hash, record_hash
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.ID, rec.TS, rec.Time, rec.Kind, rec.EventType, rec.SessionID, rec.ClientID, rec.ClientIP, rec.ADc, rec.PTYSessionID,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.ID, rec.TS, rec.Time, rec.Kind, rec.EventType, rec.SessionID, rec.ClientID, rec.ClientIP, rec.ADc, rec.TargetID, rec.TargetHost, rec.SSHUser, rec.PTYSessionID,
 		rec.Direction, rec.SeqNum, rec.MsgType, rec.PTYOp, rec.PTYEvent, rec.FrameType, rec.FrameSize, rec.PayloadB64,
 		rec.ExitCode, rec.Result, rec.ErrorCode, rec.RSAVerifyResult, rec.PrevHash, rec.RecordHash)
 	if err != nil {
@@ -198,7 +213,7 @@ func (s *AuditStore) Records(limit int, filter func(AuditRecord) bool) ([]AuditR
 	defer s.mu.Unlock()
 
 	rows, err := s.db.Query(`SELECT
-		id, ts, time, kind, event_type, session_id, client_id, client_ip, ad_c, pty_session_id,
+		id, ts, time, kind, event_type, session_id, client_id, client_ip, ad_c, target_id, target_host, ssh_user, pty_session_id,
 		direction, seq_num, msg_type, pty_op, pty_event, frame_type, frame_size, payload_b64,
 		exit_code, result, error_code, rsa_verify_result, prev_hash, record_hash
 		FROM audit_records
@@ -233,10 +248,10 @@ type auditScanner interface {
 
 func scanAuditRecord(row auditScanner) (AuditRecord, error) {
 	var rec AuditRecord
-	var sessionID, clientID, clientIP, direction, frameType, payloadB64, errorCode, rsaVerifyResult, prevHash sql.NullString
+	var sessionID, clientID, clientIP, targetID, targetHost, sshUser, direction, frameType, payloadB64, errorCode, rsaVerifyResult, prevHash sql.NullString
 	var adC, ptySessionID, seqNum, msgType, ptyOp, ptyEvent, frameSize, exitCode sql.NullInt64
 	err := row.Scan(
-		&rec.ID, &rec.TS, &rec.Time, &rec.Kind, &rec.EventType, &sessionID, &clientID, &clientIP, &adC, &ptySessionID,
+		&rec.ID, &rec.TS, &rec.Time, &rec.Kind, &rec.EventType, &sessionID, &clientID, &clientIP, &adC, &targetID, &targetHost, &sshUser, &ptySessionID,
 		&direction, &seqNum, &msgType, &ptyOp, &ptyEvent, &frameType, &frameSize, &payloadB64,
 		&exitCode, &rec.Result, &errorCode, &rsaVerifyResult, &prevHash, &rec.RecordHash,
 	)
@@ -247,6 +262,9 @@ func scanAuditRecord(row auditScanner) (AuditRecord, error) {
 	rec.ClientID = nullString(clientID)
 	rec.ClientIP = nullString(clientIP)
 	rec.ADc = uint32(nullInt(adC))
+	rec.TargetID = nullString(targetID)
+	rec.TargetHost = nullString(targetHost)
+	rec.SSHUser = nullString(sshUser)
 	rec.PTYSessionID = uint32(nullInt(ptySessionID))
 	rec.Direction = nullString(direction)
 	rec.SeqNum = uint32(nullInt(seqNum))
@@ -311,6 +329,8 @@ func auditPTYOpName(op uint8) string {
 		return "signal"
 	case 0x05:
 		return "close"
+	case 0x06:
+		return "open_ssh"
 	default:
 		return fmt.Sprintf("op_%d", op)
 	}

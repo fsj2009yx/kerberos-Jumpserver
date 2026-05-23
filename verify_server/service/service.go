@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -97,7 +98,7 @@ func NewService(configPath string) *Service {
 		s.clientCerts[item.ID] = cert
 		log.Infof("[V] client cert loaded and verified client=%s path=%s", item.ID, item.CertPath)
 	}
-	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d pty_shell=%s", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), cfg.PTYShell)
+	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d ssh_targets=%d pty_shell=%s", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), len(cfg.SSHTargets), cfg.PTYShell)
 	return s
 }
 
@@ -181,7 +182,9 @@ func (s *Service) cleanupConnection(c *ConnState) {
 	if s == nil || c == nil || c.current == nil {
 		return
 	}
-	s.cleanupSession(c.current, "connection close")
+	if c.appBound {
+		s.cleanupPTY(c.current, "app connection close")
+	}
 }
 
 func (s *Service) cleanupSession(sess *SessionContext, reason string) {
@@ -198,6 +201,62 @@ func (s *Service) cleanupSession(sess *SessionContext, reason string) {
 	}
 	s.deleteSession(sess)
 	log.Infof("[V] session cleaned client=%s pty_session_id=%d reason=%s total_frames=%d", sess.IDClient, sess.PtySessionID, reason, atomic.LoadUint64(&sess.TotalFrames))
+}
+
+func (s *Service) cleanupPTY(sess *SessionContext, reason string) {
+	if s == nil || sess == nil {
+		return
+	}
+	ptySessionID := sess.PtySessionID
+	targetID := sess.TargetID
+	targetHost := sess.TargetHost
+	sshUser := sess.SSHUser
+	hadActivePTY := sess.PTY != nil || ptySessionID != 0 || targetID != "" || targetHost != "" || sshUser != ""
+	if !hadActivePTY && sess.Closed.Load() {
+		return
+	}
+	sess.Closed.Store(true)
+	if sess.Cancel != nil {
+		sess.Cancel()
+	}
+	if sess.PTY != nil {
+		if err := sess.PTY.Close(); err != nil {
+			log.Warnf("[V] pty cleanup returned error client=%s pty_session_id=%d reason=%s err=%v", sess.IDClient, sess.PtySessionID, reason, err)
+		}
+		sess.PTY = nil
+	}
+	if hadActivePTY {
+		s.appendAudit(AuditRecord{
+			Kind:         "pty",
+			EventType:    "PTY_CLEANUP",
+			SessionID:    auditSessionID(sess.IDClient, ptySessionID),
+			ClientID:     sess.IDClient,
+			ClientIP:     sess.ClientIP,
+			ADc:          sess.ADc,
+			TargetID:     targetID,
+			TargetHost:   targetHost,
+			SSHUser:      sshUser,
+			PTYSessionID: ptySessionID,
+			FrameType:    reason,
+			Result:       "ok",
+		})
+	}
+	sess.PtySessionID = 0
+	sess.TargetID = ""
+	sess.TargetHost = ""
+	sess.SSHUser = ""
+	sess.LastIO = time.Now()
+	log.Infof("[V] pty cleaned client=%s pty_session_id=%d reason=%s total_frames=%d", sess.IDClient, ptySessionID, reason, atomic.LoadUint64(&sess.TotalFrames))
+}
+
+func (s *Service) resetPTYContext(sess *SessionContext) {
+	if sess == nil {
+		return
+	}
+	if sess.Cancel != nil {
+		sess.Cancel()
+	}
+	sess.Ctx, sess.Cancel = context.WithCancel(context.Background())
 }
 
 func (s *Service) deleteSession(sess *SessionContext) {

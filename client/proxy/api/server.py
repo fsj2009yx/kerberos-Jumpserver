@@ -8,6 +8,8 @@ import socket
 import sys
 import os
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Form
@@ -55,6 +57,36 @@ def _restore_ticket_state_after_disconnect():
         runtime.state = "STATE_AS_DONE"
     else:
         runtime.state = "STATE_INIT"
+
+
+def _has_valid_service_ticket() -> bool:
+    now = int(time.time())
+    return bool(runtime.bundle.key_c_v and runtime.bundle.ticket_v and runtime.bundle.tv_expire > now)
+
+
+def _open_v_app_connection(reason: str) -> bool:
+    """Open a fresh APP/business TCP connection to V without repeating AP."""
+    if runtime.state == "STATE_V_CONNECTED" and runtime.v_sock is not None:
+        return True
+    if not _has_valid_service_ticket():
+        _runtime_log(f"Cannot open V APP connection during {reason}: no valid Ticket_V (state={runtime.state}).", "error")
+        return False
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(config.v_addr)
+        runtime.v_sock = sock
+        runtime.state = "STATE_V_CONNECTED"
+        _runtime_log(f"Opened V APP connection for {reason}")
+        return True
+    except Exception as e:
+        if sock is not None:
+            with contextlib.suppress(Exception):
+                sock.close()
+        runtime.v_sock = None
+        _restore_ticket_state_after_disconnect()
+        _runtime_log(f"Cannot open V APP connection during {reason}: {type(e).__name__}: {e}", "error")
+        return False
 
 
 def _close_runtime_v_socket(reason: str) -> bool:
@@ -113,17 +145,21 @@ def init_config(config_path: str):
 
     with open(config_path, 'r') as f:
         cfg_data = json.load(f)
+    if 'v_webui_host' not in cfg_data or 'v_webui_port' not in cfg_data:
+        raise ValueError("client config must include v_webui_host and v_webui_port")
     config = ClientConfig(
         client_id=cfg_data['client_id'],
         ad_c=cfg_data['ad_c'],
         as_addr=(cfg_data['as_host'], cfg_data['as_port']),
         tgs_addr=(cfg_data['tgs_host'], cfg_data['tgs_port']),
         v_addr=(cfg_data['v_host'], cfg_data['v_port']),
+        v_webui_addr=(cfg_data['v_webui_host'], int(cfg_data['v_webui_port'])),
         cert_path=resolve_path(cfg_data['cert_path']),
         privkey_path=resolve_path(cfg_data['privkey_path']),
         v_cert_path=resolve_path(cfg_data.get('v_cert_path', '../../certs/v_cert.json')),
         service_id=cfg_data.get('service_id', 'verify_server'),
         ticket_store_path=resolve_path(cfg_data.get('ticket_store_path', './tickets/ticket.bin')),
+        target_catalog=cfg_data.get('target_catalog', []),
     )
 
     # 尝试从本地加载持久化票据
@@ -196,6 +232,7 @@ async def root():
         "endpoints": {
             "POST /api/login": "Kerberos三阶段认证登录",
             "GET /api/state": "获取客户端状态",
+            "GET /api/targets": "获取SSH目标列表",
             "GET /api/cert": "获取客户端证书",
             "GET /api/logs": "SSE实时日志流",
             "WS /ws/pty": "PTY终端会话"
@@ -260,12 +297,15 @@ async def login(username: str = Form(""), password: str = Form("")):
         runtime.logs.append(f"Login completed (cached) for {effective_username}")
         _persist_after_login()
         import uuid
-        runtime.session_id = str(uuid.uuid4())
+        login_session_id = str(uuid.uuid4())
+        runtime.session_id = login_session_id
+        login_state = runtime.state
+        _close_runtime_v_socket("login AP probe complete")
         return {
-            "state": runtime.state,
+            "state": login_state,
             "tgt_expire": runtime.bundle.tgt_expire,
             "tv_expire": runtime.bundle.tv_expire,
-            "session_id": runtime.session_id,
+            "session_id": login_session_id,
             "cached": True,
         }
 
@@ -287,12 +327,15 @@ async def login(username: str = Form(""), password: str = Form("")):
         runtime.logs.append(f"Login completed (partial cache) for {effective_username}")
         _persist_after_login()
         import uuid
-        runtime.session_id = str(uuid.uuid4())
+        login_session_id = str(uuid.uuid4())
+        runtime.session_id = login_session_id
+        login_state = runtime.state
+        _close_runtime_v_socket("login AP probe complete")
         return {
-            "state": runtime.state,
+            "state": login_state,
             "tgt_expire": runtime.bundle.tgt_expire,
             "tv_expire": runtime.bundle.tv_expire,
-            "session_id": runtime.session_id,
+            "session_id": login_session_id,
             "cached": True,
         }
 
@@ -320,13 +363,16 @@ async def login(username: str = Form(""), password: str = Form("")):
     _persist_after_login()
 
     import uuid
-    runtime.session_id = str(uuid.uuid4())
+    login_session_id = str(uuid.uuid4())
+    runtime.session_id = login_session_id
+    login_state = runtime.state
+    _close_runtime_v_socket("login AP probe complete")
 
     return {
-        "state": runtime.state,
+        "state": login_state,
         "tgt_expire": runtime.bundle.tgt_expire,
         "tv_expire": runtime.bundle.tv_expire,
-        "session_id": runtime.session_id
+        "session_id": login_session_id
     }
 print(f"[DEBUG] runtime.logs count: {len(runtime.logs)}")
 print(f"[DEBUG] PacketLog count: {sum(1 for x in runtime.logs if hasattr(x, 'to_dict'))}")
@@ -366,6 +412,39 @@ async def get_state():
         "tv_expire": runtime.bundle.tv_expire,
         "seq_num": runtime.seq_num
     }
+
+
+@app.get("/api/targets")
+async def get_targets():
+    """认证后从 V 拉取 SSH 目标列表；权威 SSH 配置只在 V 端。"""
+    if runtime.state not in ("STATE_V_CONNECTED", "STATE_TGS_DONE") or not _has_valid_service_ticket():
+        return {"targets": [], "error": f"client has no valid V ticket (state={runtime.state})"}
+
+    def fetch_from_v():
+        if config.v_webui_addr is None:
+            raise RuntimeError("v_webui_addr is not configured")
+        host, port = config.v_webui_addr
+        url = f"http://{host}:{port}/api/targets"
+        with urllib.request.urlopen(url, timeout=3) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    try:
+        data = await asyncio.to_thread(fetch_from_v)
+    except (OSError, urllib.error.URLError, TimeoutError) as e:
+        return {"targets": [], "error": f"failed to fetch targets from V: {e}"}
+
+    targets = []
+    for target in data.get("targets", []):
+        allowed = target.get("allowed_clients", [])
+        if allowed and config.client_id not in allowed:
+            continue
+        targets.append({
+            "id": target.get("id", ""),
+            "host": target.get("host", ""),
+            "port": target.get("port", 22),
+            "ssh_user": target.get("ssh_user", ""),
+        })
+    return {"targets": targets}
 
 
 @app.get("/api/cert")
@@ -498,18 +577,35 @@ async def websocket_pty(websocket: WebSocket):
                 cols = data.get('cols', 80)
                 rows = data.get('rows', 24)
                 term = data.get('term', 'xterm')
+                target_id = (data.get('target_id') or '').strip()
 
-                if runtime.state != "STATE_V_CONNECTED":
-                    message = f'PTY open failed: client not authenticated (state={runtime.state}).'
+                if not target_id:
+                    message = 'PTY open failed: target_id is required.'
+                    _runtime_log(message, "error")
+                    await websocket.send_json({'event': 'error', 'message': message})
+                    continue
+
+                if not _open_v_app_connection(f"pty target={target_id}"):
+                    message = f'PTY open failed: could not connect to V APP service (state={runtime.state}).'
                     _runtime_log(message, "error")
                     await websocket.send_json({'event': 'error', 'message': message})
                     continue
                 
                 term_raw = term.encode()
-                payload = len(term_raw).to_bytes(2, 'big') + term_raw + cols.to_bytes(2, 'big') + rows.to_bytes(2, 'big')
+                if target_id:
+                    target_raw = target_id.encode()
+                    payload = (
+                        len(target_raw).to_bytes(2, 'big') + target_raw +
+                        len(term_raw).to_bytes(2, 'big') + term_raw +
+                        cols.to_bytes(2, 'big') + rows.to_bytes(2, 'big')
+                    )
+                    pty_op = 0x06
+                else:
+                    payload = len(term_raw).to_bytes(2, 'big') + term_raw + cols.to_bytes(2, 'big') + rows.to_bytes(2, 'big')
+                    pty_op = 0x01
                 
                 incidental = []
-                result = await send_app_frame_locked(0x01, 0, payload, {PTY_EVENT_OPEN_OK, PTY_EVENT_ERROR}, incidental)
+                result = await send_app_frame_locked(pty_op, 0, payload, {PTY_EVENT_OPEN_OK, PTY_EVENT_ERROR}, incidental)
                 if result:
                     session_id = str(result.pty_session_id)
                     session_id_ref["session_id"] = session_id

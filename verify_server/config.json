@@ -17,6 +17,26 @@
   "pty_shell": "/bin/sh",
   "pty_default_term": "xterm-256color",
   "cli_whitelist": [],
+  "ssh_targets": [
+    {
+      "id": "prod-1",
+      "host": "127.0.0.1",
+      "port": 22,
+      "ssh_user": "kerberosTest",
+      "auth_type": "password",
+      "password": "kerberos_134579",
+      "allowed_clients": ["CLIENT_1", "CLIENT_2"]
+    },
+    {
+      "id": "test-1",
+      "host": "127.0.0.1",
+      "port": 22,
+      "ssh_user": "fsj2009yx",
+      "auth_type": "password",
+      "password": "20040928",
+      "allowed_clients": ["CLIENT_1"]
+    }
+  ],
   "client_db": [
     {
       "id": "CLIENT_1",
