@@ -43,6 +43,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 	const [targets, setTargets] = useState<TargetInfo[]>([]);
 	const [targetsLoaded, setTargetsLoaded] = useState(false);
 	const [selectedTargetId, setSelectedTargetId] = useState("");
+	const [activeTargetId, setActiveTargetId] = useState("");
 
 	const statusLabel = useMemo(() => {
 		switch (status) {
@@ -66,6 +67,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			setTargets([]);
 			setTargetsLoaded(false);
 			setSelectedTargetId("");
+			setActiveTargetId("");
 			return;
 		}
 
@@ -78,6 +80,9 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 				}
 				setTargets(items);
 				setSelectedTargetId((current) => current || items[0]?.id || "");
+				if (items.length === 0) {
+					setErrorMessage("No SSH targets are available for this client.");
+				}
 				setTargetsLoaded(true);
 			})
 			.catch((error) => {
@@ -95,7 +100,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 	}, [isAuthenticated]);
 
 	useEffect(() => {
-		if (!containerRef.current || !isAuthenticated || !targetsLoaded) {
+		if (!containerRef.current || !isAuthenticated || !targetsLoaded || !activeTargetId) {
 			if (!isAuthenticated) {
 				setStatus("disconnected");
 				setErrorMessage("Login required to open terminal.");
@@ -172,10 +177,10 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 
 		socket.onopen = () => {
 			setStatus("connected");
-			terminal.writeln(selectedTargetId ? `Connected. Opening SSH target ${selectedTargetId}...` : "Connected. Opening local PTY session...");
+			terminal.writeln(`Connected. Opening SSH target ${activeTargetId}...`);
 			const cols = terminal.cols || 80;
 			const rows = terminal.rows || 24;
-			sendJson({ op: "open", target_id: selectedTargetId, cols, rows, term: "xterm-256color" });
+			sendJson({ op: "open", target_id: activeTargetId, cols, rows, term: "xterm-256color" });
 		};
 
 		socket.onmessage = (event) => {
@@ -241,6 +246,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			const reason = event.reason ? ` ${event.reason}` : "";
 			terminal.writeln(`\r\nConnection closed.${reason}`);
 			sessionIdRef.current = null;
+			setActiveTargetId("");
 		};
 
 		const handleWindowResize = (): void => {
@@ -261,7 +267,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			fitAddonRef.current = null;
 			terminalRef.current = null;
 		};
-	}, [isAuthenticated, selectedTargetId, targetsLoaded]);
+	}, [isAuthenticated, activeTargetId, targetsLoaded]);
 
 	useEffect(() => {
 		if (!isVisible) {
@@ -290,21 +296,37 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 				</div>
 				<label className="terminal-target-control">
 					<span>Target</span>
-					<input
-						list="terminal-targets"
+					<select
 						value={selectedTargetId}
-						disabled={status !== "disconnected"}
-						placeholder="optional target_id"
+						disabled={status === "connecting" || status === "connected" || targets.length === 0}
 						onChange={(event) => setSelectedTargetId(event.target.value)}
-					/>
-					<datalist id="terminal-targets">
+					>
+						{targets.length === 0 ? (
+							<option value="">No targets</option>
+						) : null}
 						{targets.map((target) => (
 							<option key={target.id} value={target.id}>
 								{target.id}
 							</option>
 						))}
-					</datalist>
+					</select>
 				</label>
+				<button
+					className="terminal-connect-button"
+					type="button"
+					disabled={!targetsLoaded || !selectedTargetId || status === "connecting"}
+					onClick={() => {
+						if (status === "connected" || status === "error") {
+							setActiveTargetId("");
+							setStatus("disconnected");
+							sessionIdRef.current = null;
+							return;
+						}
+						setActiveTargetId(selectedTargetId);
+					}}
+				>
+					{status === "connected" || status === "error" ? "Disconnect" : "Connect"}
+				</button>
 			</div>
 			<div
 				className="terminal-body"

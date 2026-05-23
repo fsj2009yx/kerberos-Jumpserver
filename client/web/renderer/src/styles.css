@@ -674,7 +674,7 @@ body {
   font-weight: 600;
 }
 
-.terminal-target-control input {
+.terminal-target-control select {
   min-width: 140px;
   height: 32px;
   border: 1px solid #c9d4e5;
@@ -683,6 +683,23 @@ body {
   color: #1c2635;
   padding: 0 10px;
   font: inherit;
+}
+
+.terminal-connect-button {
+  height: 32px;
+  border: 0;
+  background: #111a2a;
+  color: #f3f6ff;
+  border-radius: 8px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.terminal-connect-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .terminal-status {
