@@ -18,14 +18,22 @@ func (s *Service) runWebUI() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		s.state.mu.RLock()
-		active := len(s.state.Sessions)
+		activeKerberos := len(s.state.Sessions)
+		activePTY := 0
+		for _, sess := range s.state.Sessions {
+			if sess.PTY != nil && !sess.Closed.Load() {
+				activePTY++
+			}
+		}
 		s.state.mu.RUnlock()
 		writeJSONResponse(w, r, "[V]", "/api/status", map[string]any{
-			"node_id":               s.Config.NodeID,
-			"uptime_s":              int64(time.Since(s.startTime).Seconds()),
-			"active_sessions":       active,
-			"total_pty_frames":      atomic.LoadUint64(&s.ptyFrames),
-			"total_rejected_frames": 0,
+			"node_id":                  s.Config.NodeID,
+			"uptime_s":                 int64(time.Since(s.startTime).Seconds()),
+			"active_sessions":          activeKerberos,
+			"active_kerberos_sessions": activeKerberos,
+			"active_pty_sessions":      activePTY,
+			"total_pty_frames":         atomic.LoadUint64(&s.ptyFrames),
+			"total_rejected_frames":    0,
 		})
 	})
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -35,17 +43,36 @@ func (s *Service) runWebUI() {
 		for _, sess := range s.state.Sessions {
 			sum := krb.Hash256(sess.KeyCV[:])
 			out = append(out, map[string]any{
-				"client_id":      sess.IDClient,
-				"client_ip":      sess.ClientIP,
-				"ad_c":           sess.ADc,
-				"k_cv_sha256":    hex.EncodeToString(sum[:8]),
-				"expire_at":      sess.ExpireAt,
-				"last_io_ts":     sess.LastIO.Unix(),
-				"total_frames":   sess.TotalFrames,
-				"pty_session_id": sess.PtySessionID,
+				"client_id":       sess.IDClient,
+				"client_ip":       sess.ClientIP,
+				"ad_c":            sess.ADc,
+				"target_id":       sess.TargetID,
+				"target_host":     sess.TargetHost,
+				"ssh_user":        sess.SSHUser,
+				"k_cv_sha256":     hex.EncodeToString(sum[:8]),
+				"expire_at":       sess.ExpireAt,
+				"last_io_ts":      sess.LastIO.Unix(),
+				"total_frames":    sess.TotalFrames,
+				"pty_session_id":  sess.PtySessionID,
+				"kerberos_active": true,
+				"pty_active":      sess.PTY != nil && !sess.Closed.Load(),
 			})
 		}
 		writeJSONResponse(w, r, "[V]", "/api/sessions", map[string]any{"sessions": out})
+	})
+	mux.HandleFunc("/api/targets", func(w http.ResponseWriter, r *http.Request) {
+		out := make([]map[string]any, 0, len(s.Config.SSHTargets))
+		for _, target := range s.Config.SSHTargets {
+			out = append(out, map[string]any{
+				"id":              target.ID,
+				"host":            target.Host,
+				"port":            target.Port,
+				"ssh_user":        target.SSHUser,
+				"auth_type":       target.AuthType,
+				"allowed_clients": target.AllowedClients,
+			})
+		}
+		writeJSONResponse(w, r, "[V]", "/api/targets", map[string]any{"targets": out})
 	})
 	mux.HandleFunc("/api/auth_log", func(w http.ResponseWriter, r *http.Request) {
 		limit := auditLimit(r.URL.Query().Get("limit"))

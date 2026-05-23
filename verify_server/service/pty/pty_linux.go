@@ -31,6 +31,9 @@ func (p *Session) Resize(cols, rows uint16) error {
 	if p == nil {
 		return fmt.Errorf("pty not started")
 	}
+	if p.ResizeFn != nil {
+		return p.ResizeFn(cols, rows)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.File == nil {
@@ -44,6 +47,9 @@ func (p *Session) Resize(cols, rows uint16) error {
 func (p *Session) Signal(sig uint8) error {
 	if p == nil {
 		return fmt.Errorf("pty process not started")
+	}
+	if p.SignalFn != nil {
+		return p.SignalFn(sig)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -72,8 +78,18 @@ func (p *Session) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var err error
+	if p.CloseFn != nil {
+		err = p.CloseFn()
+		p.CloseFn = nil
+	}
+	if p.Writer != nil {
+		_ = p.Writer.Close()
+		p.Writer = nil
+	}
 	if p.PTY != nil {
-		err = p.PTY.Close()
+		if closeErr := p.PTY.Close(); err == nil {
+			err = closeErr
+		}
 		p.PTY = nil
 	}
 	if p.Cmd != nil && p.Cmd.Process != nil {
@@ -87,11 +103,18 @@ func (p *Session) Close() error {
 // ReadAll 用于从PTY会话中读取数据的函数。它接受一个chan<- []byte类型的dst参数，用于将读取到的数据发送到外部，
 // 以及一个<-chan struct{}类型的stop参数，用于接收停止信号。
 func (p *Session) ReadAll(dst chan<- []byte, stop <-chan struct{}) {
-	if p == nil || p.PTY == nil {
+	if p == nil {
 		close(dst)
 		return
 	}
 	defer close(dst)
+	reader := p.Reader
+	if reader == nil {
+		reader = p.PTY
+	}
+	if reader == nil {
+		return
+	}
 	buf := make([]byte, 4096)
 	for {
 		select {
@@ -99,7 +122,7 @@ func (p *Session) ReadAll(dst chan<- []byte, stop <-chan struct{}) {
 			return
 		default:
 		}
-		n, err := p.PTY.Read(buf)
+		n, err := reader.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])

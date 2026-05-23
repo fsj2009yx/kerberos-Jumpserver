@@ -20,6 +20,19 @@ type ClientCertEntry struct {
 	Addr     string `json:"addr,omitempty"`
 }
 
+type SSHTarget struct {
+	ID             string   `json:"id"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	SSHUser        string   `json:"ssh_user"`
+	AuthType       string   `json:"auth_type"`
+	KeyPath        string   `json:"key_path,omitempty"`
+	Password       string   `json:"password,omitempty"`
+	PasswordPath   string   `json:"password_path,omitempty"`
+	KnownHostsPath string   `json:"known_hosts_path,omitempty"`
+	AllowedClients []string `json:"allowed_clients"`
+}
+
 type Config struct {
 	NodeID           string            `json:"node_id"`
 	ListenHost       string            `json:"listen_host"`
@@ -42,6 +55,7 @@ type Config struct {
 	PTYDefaultTerm   string            `json:"pty_default_term"`
 	CLIWhitelist     []string          `json:"cli_whitelist"`
 	ClientDB         []ClientCertEntry `json:"client_db"`
+	SSHTargets       []SSHTarget       `json:"ssh_targets"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -109,6 +123,37 @@ func (c *Config) validate() error {
 			missing = append(missing, fmt.Sprintf("client_db[%d].id", i))
 		}
 	}
+	for i := range c.SSHTargets {
+		target := &c.SSHTargets[i]
+		prefix := fmt.Sprintf("ssh_targets[%d]", i)
+		if strings.TrimSpace(target.ID) == "" {
+			missing = append(missing, prefix+".id")
+		}
+		if strings.TrimSpace(target.Host) == "" {
+			missing = append(missing, prefix+".host")
+		}
+		if target.Port <= 0 {
+			return fmt.Errorf("%s.port must be greater than 0", prefix)
+		}
+		if strings.TrimSpace(target.SSHUser) == "" {
+			missing = append(missing, prefix+".ssh_user")
+		}
+		if strings.TrimSpace(target.AuthType) == "" {
+			target.AuthType = "private_key"
+		}
+		switch target.AuthType {
+		case "private_key":
+			if strings.TrimSpace(target.KeyPath) == "" {
+				missing = append(missing, prefix+".key_path")
+			}
+		case "password":
+			if strings.TrimSpace(target.Password) == "" && strings.TrimSpace(target.PasswordPath) == "" {
+				missing = append(missing, prefix+".password or "+prefix+".password_path")
+			}
+		default:
+			return fmt.Errorf("%s.auth_type unsupported: %s", prefix, target.AuthType)
+		}
+	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required fields: %s", strings.Join(missing, ", "))
 	}
@@ -125,6 +170,11 @@ func (c *Config) ensureConfiguredDirs() {
 	ensureFileDir(c.KVPath)
 	for _, client := range c.ClientDB {
 		ensureFileDir(client.CertPath)
+	}
+	for _, target := range c.SSHTargets {
+		ensureFileDir(target.KeyPath)
+		ensureFileDir(target.PasswordPath)
+		ensureFileDir(target.KnownHostsPath)
 	}
 }
 

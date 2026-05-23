@@ -1,0 +1,60 @@
+{
+  "node_id": "verify_server",
+  "listen_host": "0.0.0.0",
+  "listen_port": 8883,
+  "webui_host": "0.0.0.0",
+  "webui_port": 9885,
+  "anti_replay_window_size": 1024,
+  "max_payload_bytes": 65536,
+  "read_timeout_sec": 30,
+  "cert_path": "./certs/v_cert.json",
+  "privkey_path": "./keys/v_priv.json",
+  "log_level": "INFO",
+  "log_file": "./logs/v.log",
+  "security_log_file": "./logs/security.log",
+  "audit_db_file": "./logs/v_audit.db",
+  "k_v_hex": "4b564b4559313233",
+  "pty_shell": "/bin/sh",
+  "pty_default_term": "xterm-256color",
+  "cli_whitelist": [],
+  "ssh_targets": [
+    {
+      "id": "prod-1",
+      "host": "10.0.0.11",
+      "port": 22,
+      "ssh_user": "ssh_user",
+      "auth_type": "password",
+      "password": "REPLACE_WITH_SSH_PASSWORD",
+      "known_hosts_path": "./keys/ssh/known_hosts",
+      "allowed_clients": ["CLIENT_1", "CLIENT_2"]
+    },
+    {
+      "id": "test-1",
+      "host": "10.0.0.21",
+      "port": 22,
+      "ssh_user": "ssh_user",
+      "auth_type": "password",
+      "password": "REPLACE_WITH_SSH_PASSWORD",
+      "known_hosts_path": "./keys/ssh/known_hosts",
+      "allowed_clients": ["CLIENT_1"]
+    }
+  ],
+  "client_db": [
+    {
+      "id": "CLIENT_1",
+      "cert_path": "./certs/client1_cert.json"
+    },
+    {
+      "id": "CLIENT_2",
+      "cert_path": "./certs/client2_cert.json"
+    },
+    {
+      "id": "CLIENT_3",
+      "cert_path": "./certs/client3_cert.json"
+    },
+    {
+      "id": "CLIENT_4",
+      "cert_path": "./certs/client4_cert.json"
+    }
+  ]
+}

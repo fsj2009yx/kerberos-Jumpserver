@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -96,5 +97,80 @@ func TestCleanupSessionClosesPTYAndRemovesOnlyCurrentSession(t *testing.T) {
 	case <-ctx.Done():
 	case <-time.After(time.Second):
 		t.Fatal("expected session context to be canceled")
+	}
+}
+
+func TestCleanupPTYClosesConnectionKeepsKerberosSessionAndAudits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ptyHandle := &closeCountingPTY{}
+	sess := &SessionContext{
+		IDClient:     "CLIENT_1",
+		ClientIP:     "127.0.0.1:12345",
+		ADc:          1,
+		TargetID:     "prod-1",
+		TargetHost:   "10.0.0.11:22",
+		SSHUser:      "ssh_user",
+		PtySessionID: 9,
+		PTY:          &pty.Session{PTY: ptyHandle},
+		Ctx:          ctx,
+		Cancel:       cancel,
+	}
+	audit, err := NewAuditStore(filepath.Join(t.TempDir(), "audit.db"))
+	if err != nil {
+		t.Fatalf("new audit store: %v", err)
+	}
+	defer audit.Close()
+	svc := &Service{
+		state: &VState{Sessions: map[string]*SessionContext{
+			sess.IDClient: sess,
+		}},
+		audit: audit,
+	}
+
+	svc.cleanupPTY(sess, "app connection close")
+
+	if ptyHandle.closed.Load() != 1 {
+		t.Fatalf("expected pty to be closed once, got %d", ptyHandle.closed.Load())
+	}
+	if !sess.Closed.Load() {
+		t.Fatal("expected pty state to be marked closed")
+	}
+	if sess.PTY != nil {
+		t.Fatal("expected pty handle to be cleared")
+	}
+	if sess.PtySessionID != 0 || sess.TargetID != "" || sess.TargetHost != "" || sess.SSHUser != "" {
+		t.Fatalf("expected active pty metadata to be cleared, got pty=%d target=%q host=%q user=%q", sess.PtySessionID, sess.TargetID, sess.TargetHost, sess.SSHUser)
+	}
+	if got := svc.state.Sessions["CLIENT_1"]; got != sess {
+		t.Fatalf("expected kerberos session to remain, got=%p want=%p", got, sess)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("expected pty context to be canceled")
+	}
+
+	records, err := audit.Records(10, nil)
+	if err != nil {
+		t.Fatalf("read audit records: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one cleanup audit record, got %d", len(records))
+	}
+	rec := records[0]
+	if rec.EventType != "PTY_CLEANUP" || rec.FrameType != "app connection close" || rec.TargetID != "prod-1" || rec.PTYSessionID != 9 {
+		t.Fatalf("unexpected cleanup audit record: %+v", rec)
+	}
+
+	svc.cleanupPTY(sess, "app connection close")
+	if ptyHandle.closed.Load() != 1 {
+		t.Fatalf("expected cleanup to be idempotent, close count=%d", ptyHandle.closed.Load())
+	}
+	records, err = audit.Records(10, nil)
+	if err != nil {
+		t.Fatalf("read audit records after second cleanup: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected no duplicate cleanup audit record, got %d", len(records))
 	}
 }

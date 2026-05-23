@@ -24,6 +24,7 @@ PTY_OP_NAMES = {
     0x03: "RESIZE",
     0x04: "SIGNAL",
     0x05: "CLOSE",
+    0x06: "OPEN_SSH",
 }
 
 PTY_EVENT_NAMES = {
@@ -603,6 +604,8 @@ def _parse_app_payload(kind: int, payload: bytes, is_response: bool) -> List[Tup
 
     if not is_response and kind == 0x01:
         fields.extend(_parse_pty_open_fields(payload))
+    elif not is_response and kind == 0x06:
+        fields.extend(_parse_pty_open_ssh_fields(payload))
     elif not is_response and kind == 0x03:
         fields.extend(_parse_pty_resize_fields(payload))
     elif not is_response and kind == 0x04:
@@ -644,6 +647,22 @@ def _parse_pty_open_fields(payload: bytes) -> List[Tuple[str, str]]:
         fields.append(("Cols", str(cols)))
         fields.append(("Rows", str(rows)))
 
+    return fields
+
+
+def _parse_pty_open_ssh_fields(payload: bytes) -> List[Tuple[str, str]]:
+    fields: List[Tuple[str, str]] = []
+    offset = 0
+    if offset + 2 > len(payload):
+        return fields
+    target_len = int.from_bytes(payload[offset:offset+2], 'big')
+    offset += 2
+    if offset + target_len > len(payload):
+        return fields
+    target_id = payload[offset:offset+target_len].decode('utf-8', errors='replace')
+    fields.append(("Target_ID", target_id))
+    offset += target_len
+    fields.extend(_parse_pty_open_fields(payload[offset:]))
     return fields
 
 

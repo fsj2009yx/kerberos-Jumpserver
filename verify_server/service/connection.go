@@ -25,8 +25,9 @@ type ConnState struct {
 	sendSeq uint32
 	writeMu sync.Mutex
 
-	authed  bool
-	current *SessionContext
+	authed   bool
+	current  *SessionContext
+	appBound bool
 }
 
 func NewConnState(conn net.Conn, antiReplayWindow int) *ConnState {

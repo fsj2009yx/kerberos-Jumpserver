@@ -49,10 +49,16 @@ func (p *windowsPTY) Close() error {
 }
 
 func (p *Session) Resize(cols, rows uint16) error {
+	if p != nil && p.ResizeFn != nil {
+		return p.ResizeFn(cols, rows)
+	}
 	return fmt.Errorf("resize unsupported on windows fallback")
 }
 
 func (p *Session) Signal(sig uint8) error {
+	if p != nil && p.SignalFn != nil {
+		return p.SignalFn(sig)
+	}
 	if p == nil || p.Cmd == nil || p.Cmd.Process == nil {
 		return fmt.Errorf("pty process not started")
 	}
@@ -74,6 +80,14 @@ func (p *Session) Close() error {
 	if p == nil {
 		return nil
 	}
+	if p.CloseFn != nil {
+		_ = p.CloseFn()
+		p.CloseFn = nil
+	}
+	if p.Writer != nil {
+		_ = p.Writer.Close()
+		p.Writer = nil
+	}
 	if p.PTY != nil {
 		_ = p.PTY.Close()
 	}
@@ -85,11 +99,18 @@ func (p *Session) Close() error {
 }
 
 func (p *Session) ReadAll(dst chan<- []byte, stop <-chan struct{}) {
-	if p == nil || p.PTY == nil {
+	if p == nil {
 		close(dst)
 		return
 	}
 	defer close(dst)
+	reader := p.Reader
+	if reader == nil {
+		reader = p.PTY
+	}
+	if reader == nil {
+		return
+	}
 	buf := make([]byte, 4096)
 	for {
 		select {
@@ -97,7 +118,7 @@ func (p *Session) ReadAll(dst chan<- []byte, stop <-chan struct{}) {
 			return
 		default:
 		}
-		n, err := p.PTY.Read(buf)
+		n, err := reader.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])

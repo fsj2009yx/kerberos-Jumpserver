@@ -52,10 +52,11 @@ func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, pay
 		ExpireAt:     ticket.TS4 + ticket.Lifetime,
 		PtySessionID: 0,
 		LastIO:       time.Now(),
+		AppReplay:    krb.NewReplayWindow(s.Config.AntiReplayWindow),
 	}
 
 	// 使用AP-REQ消息的上下文作为会话上下文的基础，并将其存储在服务端的会话管理器中，以便后续的消息处理能够关联到正确的客户端会话
-	sess.Ctx, sess.Cancel = context.WithCancel(connCtx)
+	sess.Ctx, sess.Cancel = context.WithCancel(context.Background())
 	s.state.mu.Lock()
 	s.state.Sessions[sess.IDClient] = sess
 	s.state.mu.Unlock()
