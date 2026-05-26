@@ -166,6 +166,7 @@ def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes
 
 
 def recv_packet(sock: socket.socket, runtime=None, src_addr=None, dst_addr=None) -> tuple[KerHeader, bytes]:
+    print("陶方阳")
     """接收一个Kerberos协议包"""
     # 从socket获取地址，如果没有提供的话
     if src_addr is None:
@@ -529,7 +530,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         # 构造AS_REQ
         ts1 = int(time.time())
         log_debug(f"Constructing AS_REQ - TS1: {ts1}")
-        payload = pack_as_req(username, "TGS", ts1)
+        payload = pack_as_req(username, "TGS", ts1)#打包成协议规定的二进制格式
         log_debug(f"AS_REQ payload length: {len(payload)} bytes")
         
          
@@ -539,7 +540,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         krb_log_packet(rt, local_host, peer_host, "KRB5",
                     "AS_REQ - Client authentication request",
                     krb_pack(0x01, seq, ts1, payload), decoded_lines)  
-        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, local_host, peer_host)
+        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, local_host, peer_host)#发送一个 Kerberos 请求包，然后原地等待接收服务器的响应包
         log_info("AS_REQ sent and AS_REP received")
         
         # 解密响应（password作为Kc）
@@ -550,7 +551,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         log_debug(f"Encrypted AS_REP payload: {len(resp_payload)} bytes")
         hexdump(resp_payload, "Encrypted AS_REP:")
         
-        as_rep = unpack_as_rep(resp_payload, kc)
+        as_rep = unpack_as_rep(resp_payload, kc)# 解包+解密：拿到会话密钥和TGT
 
         # 使用统一解密函数记录解密后的日志
         full_packet = header.to_bytes() + resp_payload
@@ -616,7 +617,7 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         log_debug(f"Constructing TGS_REQ - TS3: {ts3}, ID_V: {id_v}")
         
         payload = pack_tgs_req(id_v, rt.bundle.ticket_tgs, rt.bundle.key_c_tgs,
-                              cfg.client_id, cfg.ad_c, ts3)
+                              cfg.client_id, cfg.ad_c, ts3) # 打包：构造TGS请求（TGT+认证器）
         log_debug(f"TGS_REQ payload length: {len(payload)} bytes")
         log_debug(f"Using Key_C_TGS: {rt.bundle.key_c_tgs.hex()}")
         log_debug(f"Ticket_TGS length: {len(rt.bundle.ticket_tgs)} bytes")
@@ -640,14 +641,14 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
 
         # TGS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
-        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, local_host, peer_host)
+        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, local_host, peer_host)# 发送并等待响应
         log_info("TGS_REQ sent and TGS_REP received")
         
         # 解密响应
         log_debug(f"Encrypted TGS_REP payload: {len(resp_payload)} bytes")
         hexdump(resp_payload, "Encrypted TGS_REP:")
         
-        tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)
+        tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)# 解包+解密：拿到业务票据和密钥
 
         # 使用统一解密函数记录解密后的日志
         full_packet = header.to_bytes() + resp_payload
