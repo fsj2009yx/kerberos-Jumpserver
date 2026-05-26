@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"net"
+	"security-project/common/krb/transport"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,8 +26,12 @@ type ConnState struct {
 	sendSeq uint32
 	writeMu sync.Mutex
 
-	authed  bool
-	current *SessionContext
+	//authed表示连接是否已经通过认证，只有在认证成功后才允许进行后续的操作，如创建会话、执行命令等
+	authed bool
+	// current字段指向当前的SessionContext，表示当前连接正在处理哪个会话
+	//当连接接收到一个新的请求时，会根据请求中的信息找到对应的SessionContext，并将其赋值给current字段，以便后续的操作能够正确地关联到该会话。
+	current  *SessionContext
+	appBound bool
 }
 
 func NewConnState(conn net.Conn, antiReplayWindow int) *ConnState {
@@ -50,7 +55,7 @@ func (c *ConnState) closeOnCancel() {
 func (c *ConnState) readPacket(maxPayloadBytes uint32) (krb.ProtocolHeader, []byte, error) {
 	// 长连接不需要设置读取超时
 	//_ = c.conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeoutSec) * time.Second))
-	return krb.ReadPacket(c.conn, maxPayloadBytes)
+	return transport.ReadPacket(c.conn, maxPayloadBytes)
 }
 
 func (c *ConnState) nextSeq() uint32 {
@@ -68,7 +73,7 @@ func (c *ConnState) sendPacket(msgType uint8, payload []byte) error {
 func (c *ConnState) sendPacketWithSeq(msgType uint8, seq uint32, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	err := krb.WritePacket(c.conn, msgType, seq, uint32(time.Now().Unix()), payload)
+	err := transport.WritePacket(c.conn, msgType, seq, uint32(time.Now().Unix()), payload)
 	if err != nil {
 		log.Errorf("[V] packet send failed remote=%s msg_type=%d seq=%d err=%v", c.remote, msgType, seq, err)
 		c.cancel()

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { getTargets, type TargetInfo } from "../../utils/api_calls";
 import "@xterm/xterm/css/xterm.css"
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -39,6 +40,10 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [targets, setTargets] = useState<TargetInfo[]>([]);
+	const [targetsLoaded, setTargetsLoaded] = useState(false);
+	const [selectedTargetId, setSelectedTargetId] = useState("");
+	const [activeTargetId, setActiveTargetId] = useState("");
 
 	const statusLabel = useMemo(() => {
 		switch (status) {
@@ -58,7 +63,44 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 	};
 
 	useEffect(() => {
-		if (!containerRef.current || !isAuthenticated) {
+		if (!isAuthenticated) {
+			setTargets([]);
+			setTargetsLoaded(false);
+			setSelectedTargetId("");
+			setActiveTargetId("");
+			return;
+		}
+
+		let cancelled = false;
+		setTargetsLoaded(false);
+		getTargets()
+			.then((items) => {
+				if (cancelled) {
+					return;
+				}
+				setTargets(items);
+				setSelectedTargetId((current) => current || items[0]?.id || "");
+				if (items.length === 0) {
+					setErrorMessage("No SSH targets are available for this client.");
+				}
+				setTargetsLoaded(true);
+			})
+			.catch((error) => {
+				if (cancelled) {
+					return;
+				}
+				const text = error instanceof Error ? error.message : "Failed to load targets.";
+				setErrorMessage(text);
+				setTargetsLoaded(true);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [isAuthenticated]);
+
+	useEffect(() => {
+		if (!containerRef.current || !isAuthenticated || !targetsLoaded || !activeTargetId) {
 			if (!isAuthenticated) {
 				setStatus("disconnected");
 				setErrorMessage("Login required to open terminal.");
@@ -135,10 +177,10 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 
 		socket.onopen = () => {
 			setStatus("connected");
-			terminal.writeln("Connected. Opening PTY session...");
+			terminal.writeln(`Connected. Opening SSH target ${activeTargetId}...`);
 			const cols = terminal.cols || 80;
 			const rows = terminal.rows || 24;
-			sendJson({ op: "open", cols, rows, term: "xterm-256color" });
+			sendJson({ op: "open", target_id: activeTargetId, cols, rows, term: "xterm-256color" });
 		};
 
 		socket.onmessage = (event) => {
@@ -204,6 +246,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			const reason = event.reason ? ` ${event.reason}` : "";
 			terminal.writeln(`\r\nConnection closed.${reason}`);
 			sessionIdRef.current = null;
+			setActiveTargetId("");
 		};
 
 		const handleWindowResize = (): void => {
@@ -224,7 +267,7 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 			fitAddonRef.current = null;
 			terminalRef.current = null;
 		};
-	}, [isAuthenticated]);
+	}, [isAuthenticated, activeTargetId, targetsLoaded]);
 
 	useEffect(() => {
 		if (!isVisible) {
@@ -251,6 +294,39 @@ const TerminalView = ({ isVisible = true, isAuthenticated }: TerminalViewProps):
 						<div className="terminal-error-inline">{errorMessage}</div>
 					) : null}
 				</div>
+				<label className="terminal-target-control">
+					<span>Target</span>
+					<select
+						value={selectedTargetId}
+						disabled={status === "connecting" || status === "connected" || targets.length === 0}
+						onChange={(event) => setSelectedTargetId(event.target.value)}
+					>
+						{targets.length === 0 ? (
+							<option value="">No targets</option>
+						) : null}
+						{targets.map((target) => (
+							<option key={target.id} value={target.id}>
+								{target.id}
+							</option>
+						))}
+					</select>
+				</label>
+				<button
+					className="terminal-connect-button"
+					type="button"
+					disabled={!targetsLoaded || !selectedTargetId || status === "connecting"}
+					onClick={() => {
+						if (status === "connected" || status === "error") {
+							setActiveTargetId("");
+							setStatus("disconnected");
+							sessionIdRef.current = null;
+							return;
+						}
+						setActiveTargetId(selectedTargetId);
+					}}
+				>
+					{status === "connected" || status === "error" ? "Disconnect" : "Connect"}
+				</button>
 			</div>
 			<div
 				className="terminal-body"

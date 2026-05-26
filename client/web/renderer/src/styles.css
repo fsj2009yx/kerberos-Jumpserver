@@ -196,7 +196,7 @@ body {
 
 .logs-entry {
   display: grid;
-  grid-template-columns: 70px minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(120px, 1fr) 100px minmax(220px, 2fr);
+  grid-template-columns: 70px minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(120px, 1fr) 100px 120px minmax(220px, 2fr);
   gap: 12px;
   text-align: left;
   border: 0;
@@ -206,7 +206,7 @@ body {
   cursor: pointer;
   transition: none;
   scroll-snap-align: start;
-  min-width: 880px;
+  min-width: 1020px;
 }
 
 .logs-entry:hover {
@@ -252,6 +252,38 @@ body {
   letter-spacing: 0.08em;
 }
 
+.signature-pill {
+  width: max-content;
+  max-width: 116px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #344154;
+  background: #edf1f7;
+  border: 1px solid rgba(52, 65, 84, 0.14);
+}
+
+.signature-pill.is-verified {
+  color: #11603a;
+  background: rgba(23, 154, 92, 0.12);
+  border-color: rgba(23, 154, 92, 0.26);
+}
+
+.signature-pill.is-failed {
+  color: #8c1d1d;
+  background: rgba(184, 45, 45, 0.12);
+  border-color: rgba(184, 45, 45, 0.28);
+}
+
+.signature-pill.is-pending {
+  color: #82520d;
+  background: rgba(216, 145, 32, 0.14);
+  border-color: rgba(216, 145, 32, 0.28);
+}
+
 .logs-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -279,7 +311,7 @@ body {
 
 .logs-list-header {
   display: grid;
-  grid-template-columns: 70px minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(120px, 1fr) 100px minmax(220px, 2fr);
+  grid-template-columns: 70px minmax(160px, 1.2fr) minmax(120px, 1fr) minmax(120px, 1fr) 100px 120px minmax(220px, 2fr);
   gap: 12px;
   font-size: 12px;
   font-weight: 700;
@@ -287,7 +319,7 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 6px 2px;
-  min-width: 880px;
+  min-width: 1020px;
 }
 
 .logs-detail {
@@ -300,6 +332,70 @@ body {
   justify-content: center;
   padding: 24px;
   color: #5a6b84;
+}
+
+.logs-detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.logs-detail-stack .logs-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.signature-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid rgba(52, 65, 84, 0.14);
+  border-radius: 10px;
+  background: #f6f8fb;
+  color: #344154;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.signature-panel strong {
+  display: block;
+  font-size: 13px;
+  color: #1e2a3b;
+}
+
+.signature-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5a6b84;
+}
+
+.signature-panel.is-verified {
+  border-color: rgba(23, 154, 92, 0.28);
+  background: rgba(23, 154, 92, 0.08);
+}
+
+.signature-panel.is-failed {
+  border-color: rgba(184, 45, 45, 0.3);
+  background: rgba(184, 45, 45, 0.08);
+}
+
+.signature-panel.is-pending {
+  border-color: rgba(216, 145, 32, 0.28);
+  background: rgba(216, 145, 32, 0.1);
+}
+
+.signature-detail {
+  color: #425169;
 }
 
 .logs-column h3 {
@@ -567,6 +663,43 @@ body {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.terminal-target-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #425169;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.terminal-target-control select {
+  min-width: 140px;
+  height: 32px;
+  border: 1px solid #c9d4e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #1c2635;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.terminal-connect-button {
+  height: 32px;
+  border: 0;
+  background: #111a2a;
+  color: #f3f6ff;
+  border-radius: 8px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.terminal-connect-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .terminal-status {

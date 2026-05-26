@@ -135,6 +135,7 @@ func newDESCtx(key [8]byte) *desCtx {
 	return ctx
 }
 
+// generateDESSubKeys 从 8 字节密钥生成 16 个 48 位子密钥
 func generateDESSubKeys(key [8]byte) [16]uint64 {
 	var out [16]uint64
 	key64 := binary.BigEndian.Uint64(key[:])
@@ -205,6 +206,7 @@ func desRound(r uint32, subKey uint64) uint32 {
 	return uint32(permuteBits(uint64(out), 32, desP[:]))
 }
 
+// desCBCEncrypt 使用 DES 算法的 CBC 模式加密数据，返回 IV 和密文
 func desCBCEncrypt(key [8]byte, plain []byte) ([]byte, error) {
 	iv := make([]byte, 8)
 	if _, err := rand.Read(iv); err != nil {
@@ -225,14 +227,19 @@ func desCBCEncrypt(key [8]byte, plain []byte) ([]byte, error) {
 	return out, nil
 }
 
+// desCBCDecrypt 使用 DES 算法的 CBC 模式解密数据，输入包含 IV 和密文，返回解密后的明文
 func desCBCDecrypt(key [8]byte, cipherBytes []byte) ([]byte, error) {
 	if len(cipherBytes) < 8 || len(cipherBytes)%8 != 0 {
 		return nil, errors.New("invalid des cipher length")
 	}
+	//取出 IV
 	iv := cipherBytes[:8]
+	//解密每个块
 	ctx := newDESCtx(key)
 	prev := binary.BigEndian.Uint64(iv)
 	plain := make([]byte, len(cipherBytes)-8)
+
+	//从第 8 字节开始，每 8 字节为一个块进行解密
 	for i := 8; i < len(cipherBytes); i += 8 {
 		block := binary.BigEndian.Uint64(cipherBytes[i : i+8])
 		dec := desDecryptBlock(block, ctx.subKeys)
@@ -240,5 +247,7 @@ func desCBCDecrypt(key [8]byte, cipherBytes []byte) ([]byte, error) {
 		binary.BigEndian.PutUint64(plain[i-8:i], dec)
 		prev = block
 	}
+
+	//去除填充
 	return pkcs7Unpad(plain, 8)
 }

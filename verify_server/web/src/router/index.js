@@ -6,6 +6,7 @@ import AuthLog from '../views/AuthLog.vue'
 import AuditSession from '../views/AuditSession.vue'
 import Replay from '../views/Replay.vue'
 import Certificates from '../views/Certificates.vue'
+import Targets from '../views/Targets.vue'
 
 const routes = [
   { path: '/', redirect: '/overview' },
@@ -15,6 +16,7 @@ const routes = [
   { path: '/auth', name: 'auth-log', component: AuthLog, meta: { title: '认证日志' } },
   { path: '/audit-session', name: 'audit-session', component: AuditSession, meta: { title: '会话审计' } },
   { path: '/replay', name: 'replay', component: Replay, meta: { title: '输出回放' } },
+  { path: '/targets', name: 'targets', component: Targets, meta: { title: 'SSH 节点' } },
   { path: '/certificates', name: 'certificates', component: Certificates, meta: { title: '证书' } },
 ]
 

@@ -1,4 +1,4 @@
-package krb
+package protocol
 
 import (
 	"errors"

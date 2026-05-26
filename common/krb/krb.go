@@ -1,50 +1,17 @@
+//kerberos中使用的一些工具函数和数据结构，例如重放窗口、密钥加载、IP地址转换等。
+
 package krb
 
 import (
-	"bytes"
-	"context"
-	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"math/big"
 	"net"
 	"os"
 	"security-project/common/crypto"
-	"strings"
+	"security-project/common/krb/protocol"
 	"sync"
 	"time"
 )
-
-type Certificate struct {
-	ID        string `json:"id"`
-	Issuer    string `json:"issuer"`
-	PublicKey struct {
-		N string `json:"n"`
-		E string `json:"e"`
-	} `json:"public_key"`
-	Expire string `json:"expire"`
-	Sign   string `json:"sign"`
-}
-
-type certBody struct {
-	ID        string `json:"id"`
-	Issuer    string `json:"issuer"`
-	PublicKey struct {
-		N string `json:"n"`
-		E string `json:"e"`
-	} `json:"public_key"`
-	Expire string `json:"expire"`
-}
-
-type RSAKeyJSON struct {
-	N string `json:"n"`
-	E string `json:"e"`
-	D string `json:"d,omitempty"`
-}
 
 type ReplayWindow struct {
 	mu     sync.Mutex
@@ -80,7 +47,7 @@ func (r *ReplayWindow) CheckScoped(scope string, ts, seq uint32) error {
 	}
 	// 如果时间戳与当前时间的差值超过5秒，则认为是重放攻击，返回相应的错误码。
 	if diff > 5 {
-		return errorFromCode(ErrReplayTimestamp)
+		return protocol.ErrorFromCode(protocol.ErrReplayTimestamp)
 	}
 
 	rs, ok := r.scopes[scope]
@@ -92,7 +59,7 @@ func (r *ReplayWindow) CheckScoped(scope string, ts, seq uint32) error {
 		r.scopes[scope] = rs
 	}
 	if _, ok := rs.seen[seq]; ok {
-		return errorFromCode(ErrReplaySeq)
+		return protocol.ErrorFromCode(protocol.ErrReplaySeq)
 	}
 	rs.seen[seq] = struct{}{}
 	rs.order = append(rs.order, seq)
@@ -104,152 +71,7 @@ func (r *ReplayWindow) CheckScoped(scope string, ts, seq uint32) error {
 	return nil
 }
 
-func EncodeKString(s string) []byte {
-	out := make([]byte, 2+len(s))
-	binary.BigEndian.PutUint16(out[:2], uint16(len(s)))
-	copy(out[2:], s)
-	return out
-}
-
-// DecodeKString 解析KString格式的数据，返回KString结构体、总字节数和错误码
-func DecodeKString(raw []byte) (KString, int, error) {
-	c := NewCursor(raw)
-	ks, err := c.ReadKString()
-	if err != nil {
-		return KString{}, 0, err
-	}
-	return ks, c.off, nil
-}
-
-func EncodeKStringStruct(ks KString) []byte {
-	if int(ks.Len) != len(ks.Data) {
-		ks.Len = uint16(len(ks.Data))
-	}
-	out := make([]byte, 2+len(ks.Data))
-	binary.BigEndian.PutUint16(out[:2], ks.Len)
-	copy(out[2:], ks.Data)
-	return out
-}
-
-// PackHeader 构建一个协议头的字节切片，包含了消息类型、序列号、时间戳和负载长度等信息。返回构建好的字节切片。
-func PackHeader(msgType uint8, seqNum, timestamp uint32, payloadLen uint32) []byte {
-	out := make([]byte, 20)
-	binary.BigEndian.PutUint16(out[0:2], MagicNumber)
-	out[2] = Version1
-	out[3] = msgType
-	binary.BigEndian.PutUint32(out[4:8], payloadLen)
-	binary.BigEndian.PutUint32(out[8:12], seqNum)
-	binary.BigEndian.PutUint32(out[12:16], timestamp)
-	binary.BigEndian.PutUint32(out[16:20], 0)
-	return out
-}
-
-// UnpackHeader 从原始字节切片中解析出一个协议头结构体，校验魔数和版本号的正确性，并返回解析出的协议头和错误码。
-func UnpackHeader(raw []byte) (ProtocolHeader, error) {
-	if len(raw) < 20 {
-		return ProtocolHeader{}, errorFromCode(ErrSocketRecv)
-	}
-	h := ProtocolHeader{
-		Magic:     binary.BigEndian.Uint16(raw[0:2]),
-		Version:   raw[2],
-		MsgType:   raw[3],
-		TotalLen:  binary.BigEndian.Uint32(raw[4:8]),
-		SeqNum:    binary.BigEndian.Uint32(raw[8:12]),
-		Timestamp: binary.BigEndian.Uint32(raw[12:16]),
-		Addition:  binary.BigEndian.Uint32(raw[16:20]),
-	}
-	if h.Magic != MagicNumber {
-		return ProtocolHeader{}, errorFromCode(ErrMagicMismatch)
-	}
-	if h.Version != Version1 {
-		return ProtocolHeader{}, errorFromCode(ErrVersionUnsupported)
-	}
-	return h, nil
-}
-
-func PackPacket(msgType uint8, seqNum, timestamp uint32, payload []byte) []byte {
-	header := PackHeader(msgType, seqNum, timestamp, uint32(len(payload)))
-	return append(header, payload...)
-}
-
-// ReadPacket 从连接中读取一个完整的协议包，返回解析后的协议头、负载数据和错误码
-func ReadPacket(conn net.Conn, maxPayload uint32) (ProtocolHeader, []byte, error) {
-	//解析前20字节的header
-	headerBuf := make([]byte, 20)
-	if _, err := io.ReadFull(conn, headerBuf); err != nil {
-		return ProtocolHeader{}, nil, errorFromCode(ErrSocketRecv)
-	}
-	h, code := UnpackHeader(headerBuf)
-	//校验header合法性
-	if code != nil {
-		return ProtocolHeader{}, nil, code
-	}
-	//校验payload长度
-	if h.TotalLen > maxPayload {
-		return ProtocolHeader{}, nil, errorFromCode(ErrPayloadTooLarge)
-	}
-	payload := make([]byte, h.TotalLen)
-	if h.TotalLen > 0 {
-		if _, err := io.ReadFull(conn, payload); err != nil {
-			return ProtocolHeader{}, nil, errorFromCode(ErrSocketRecv)
-		}
-	}
-	return h, payload, nil
-}
-
-func WritePacket(conn net.Conn, msgType uint8, seqNum, timestamp uint32, payload []byte) error {
-	packet := PackPacket(msgType, seqNum, timestamp, payload)
-	_, err := conn.Write(packet)
-	return err
-}
-
-// CheckHeaderType 检查消息类型是否在当前处理入口允许的范围内。
-// MsgErr 表示对端返回的错误响应，不能作为正常业务消息继续解析。
-func CheckHeaderType(msgType uint8, allowed ...uint8) error {
-	if msgType == MsgErr {
-		return errorFromCode(ErrMsgTypeInvalid)
-	}
-	for _, v := range allowed {
-		if v == msgType {
-			return nil
-		}
-	}
-	return errorFromCode(ErrMsgTypeInvalid)
-}
-
-// CheckPacketType 检查完整报文类型。收到 MsgErr 时返回对端错误码，
-// 调用方应记录错误并关闭连接，不应继续进入业务 payload 解析。
-func CheckPacketType(h ProtocolHeader, payload []byte, allowed ...uint8) error {
-	if h.MsgType == MsgErr {
-		code, err := ParseErrorPayload(payload)
-		if err != nil {
-			return err
-		}
-		return peerErrorFromCode(code)
-	}
-	return CheckHeaderType(h.MsgType, allowed...)
-}
-
-// BuildErrorPayload 构建一个错误消息的负载，包含了错误码
-func BuildErrorPayload(code int32) []byte {
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(code))
-	return buf
-}
-
-func ParseErrorPayload(payload []byte) (int32, error) {
-	if len(payload) != 4 {
-		return KRBOK, errorFromCode(ErrMsgTypeInvalid)
-	}
-	code := int32(binary.BigEndian.Uint32(payload[:4]))
-	if code == KRBOK {
-		return KRBOK, errorFromCode(ErrMsgTypeInvalid)
-	}
-	return code, nil
-}
-
-// LoadKey8 从指定路径加载一个8字节的密钥（DES密钥），
-// 如果路径为空或加载失败，则使用fallbackSeed生成一个8字节的密钥。返回加载的密钥和错误信息。
+// LoadKey8 (测试用）
 func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
 	var out [8]byte
 	if path != "" {
@@ -260,7 +82,7 @@ func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
 				copy(out[:], b)
 				return out, nil
 			default:
-				if key, ok := parseKeyBytes(b); ok {
+				if key, ok := crypto.ParseKeyBytes(b); ok {
 					copy(out[:], key)
 					return out, nil
 				}
@@ -275,246 +97,6 @@ func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
 	return out, nil
 }
 
-// LoadConfiguredKey8 从指定的路径或内联字符串加载一个8字节的密钥（DES密钥）。
-// 如果内联字符串不为空且有效，则优先使用内联字符串；否则从文件路径加载密钥。返回加载的密钥和错误信息。
-func LoadConfiguredKey8(path string, inline string, label string) ([8]byte, error) {
-	var out [8]byte
-	if strings.TrimSpace(inline) != "" {
-		key, ok := parseKeyBytes([]byte(inline))
-		if !ok {
-			return out, fmt.Errorf("%s key inline value is invalid", label)
-		}
-		copy(out[:], key)
-		return out, nil
-	}
-	if strings.TrimSpace(path) == "" {
-		return out, fmt.Errorf("%s key path or inline key is required", label)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return out, fmt.Errorf("read %s key %q: %w", label, path, err)
-	}
-	if len(b) == 8 {
-		copy(out[:], b)
-		return out, nil
-	}
-	//返回8字节的密钥
-	key, ok := parseKeyBytes(b)
-	if !ok {
-		return out, fmt.Errorf("%s key %q is not 8-byte raw, hex, base64, or key JSON", label, path)
-	}
-	copy(out[:], key)
-	return out, nil
-}
-
-// parseKeyBytes 尝试从原始字节数据中解析出一个8字节的密钥，
-// 支持直接的8字节数据、十六进制字符串和Base64字符串三种格式。返回解析出的密钥和一个布尔值表示是否成功解析。
-func parseKeyBytes(raw []byte) ([]byte, bool) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 {
-		return nil, false
-	}
-	if raw[0] == '{' {
-		var doc struct {
-			Key string `json:"key"`
-		}
-		if err := json.Unmarshal(raw, &doc); err == nil && doc.Key != "" {
-			if decoded, ok := decodeKeyString(doc.Key); ok {
-				return decoded, true
-			}
-		}
-	}
-	if decoded, ok := decodeKeyString(string(raw)); ok {
-		return decoded, true
-	}
-	return nil, false
-}
-
-func decodeKeyString(s string) ([]byte, bool) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, false
-	}
-	if decoded, err := hex.DecodeString(s); err == nil && len(decoded) >= 8 {
-		return decoded[:8], true
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil && len(decoded) >= 8 {
-		return decoded[:8], true
-	}
-	return nil, false
-}
-
-func LoadRSAPrivateKey(path string) (*crypto.RSAKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var doc RSAKeyJSON
-	if err := json.Unmarshal(b, &doc); err != nil {
-		return nil, err
-	}
-	n, err := parseBigIntHex(doc.N)
-	if err != nil {
-		return nil, err
-	}
-	e, err := parseBigIntHex(doc.E)
-	if err != nil {
-		return nil, err
-	}
-	d, err := parseBigIntHex(doc.D)
-	if err != nil {
-		return nil, err
-	}
-	return &crypto.RSAKey{N: n, E: e, D: d}, nil
-}
-
-func LoadRSAPublicKey(path string) (*crypto.RSAKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var doc RSAKeyJSON
-	if err := json.Unmarshal(b, &doc); err != nil {
-		var cert Certificate
-		if err2 := json.Unmarshal(b, &cert); err2 == nil && cert.PublicKey.N != "" {
-			doc.N = cert.PublicKey.N
-			doc.E = cert.PublicKey.E
-		} else {
-			return nil, err
-		}
-	}
-	n, err := parseBigIntHex(doc.N)
-	if err != nil {
-		return nil, err
-	}
-	e, err := parseBigIntHex(doc.E)
-	if err != nil {
-		return nil, err
-	}
-	return &crypto.RSAKey{N: n, E: e}, nil
-}
-
-// parseBigIntHex 尝试将输入字符串解析为一个大整数，
-// 支持十六进制和十进制两种格式。返回解析出的大整数和错误信息。
-func parseBigIntHex(s string) (*big.Int, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, errors.New("empty big integer")
-	}
-	if v, ok := new(big.Int).SetString(s, 16); ok {
-		return v, nil
-	}
-	if v, ok := new(big.Int).SetString(s, 10); ok {
-		return v, nil
-	}
-	return nil, fmt.Errorf("invalid integer: %s", s)
-}
-
-func CertLoad(path string) (*Certificate, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var cert Certificate
-	if err := json.Unmarshal(b, &cert); err != nil {
-		return nil, err
-	}
-	return &cert, nil
-}
-
-func CertBodyBytes(cert *Certificate) ([]byte, error) {
-	if cert == nil {
-		return nil, errors.New("nil cert")
-	}
-	var body certBody
-	body.ID = cert.ID
-	body.Issuer = cert.Issuer
-	body.PublicKey.N = cert.PublicKey.N
-	body.PublicKey.E = cert.PublicKey.E
-	body.Expire = cert.Expire
-	return json.Marshal(body)
-}
-
-// CertVerify 验证证书的有效性，包括过期时间和签名的正确性。
-// 返回错误信息，如果验证成功则返回nil。
-func CertVerify(cert *Certificate) error {
-	if cert == nil {
-		return errorFromCode(ErrCertLoadFail)
-	}
-	expire, err := time.Parse("2006-01-02", cert.Expire)
-	if err != nil {
-		return errorFromCode(ErrCertLoadFail)
-	}
-	if time.Now().After(expire.Add(24 * time.Hour)) {
-		return errorFromCode(ErrCertExpired)
-	}
-	body, err := CertBodyBytes(cert)
-	if err != nil {
-		return errorFromCode(ErrCertLoadFail)
-	}
-	pub, err := cert.PublicKeyRSA()
-	if err != nil {
-		return errorFromCode(ErrCertSigInvalid)
-	}
-	sig, err := decodeSignature(cert.Sign)
-	if err != nil {
-		return errorFromCode(ErrCertSigInvalid)
-	}
-	sum := crypto.Sum256(body)
-	if code := crypto.RsaVerifyDigest(sum[:], sig, pub); code != crypto.KRBOK {
-		return errorFromCode(code)
-	}
-	return nil
-}
-
-// PublicKeyRSA 从证书的公钥信息中解析出一个RSAKey结构体，返回解析出的RSAKey和错误信息。
-func (c *Certificate) PublicKeyRSA() (*crypto.RSAKey, error) {
-	n, err := parseBigIntHex(c.PublicKey.N)
-	if err != nil {
-		return nil, err
-	}
-	e, err := parseBigIntHex(c.PublicKey.E)
-	if err != nil {
-		return nil, err
-	}
-	return &crypto.RSAKey{N: n, E: e}, nil
-}
-
-func decodeSignature(s string) ([]byte, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, errors.New("empty signature")
-	}
-	if len(s)%2 == 0 && isHexString(s) {
-		if b, err := hex.DecodeString(s); err == nil {
-			return b, nil
-		}
-	}
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == 256 {
-		return b, nil
-	}
-	return nil, errors.New("invalid signature format")
-}
-
-func isHexString(s string) bool {
-	for _, r := range s {
-		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func CertFindByID(id string, certDB []*Certificate) *Certificate {
-	for _, cert := range certDB {
-		if cert != nil && cert.ID == id {
-			return cert
-		}
-	}
-	return nil
-}
-
 func Hash256(data []byte) [32]byte {
 	return crypto.Sum256(data)
 }
@@ -523,17 +105,6 @@ func Uint32ToBytes(v uint32) []byte {
 	out := make([]byte, 4)
 	binary.BigEndian.PutUint32(out, v)
 	return out
-}
-
-func BytesToUint32(b []byte) uint32 {
-	return binary.BigEndian.Uint32(b)
-}
-
-func BuildSessionKey(seed string) ([8]byte, int32) {
-	var out [8]byte
-	sum := crypto.Sum256([]byte(seed + time.Now().UTC().Format(time.RFC3339Nano)))
-	copy(out[:], sum[:8])
-	return out, KRBOK
 }
 
 func ToUint32IP(ip net.IP) uint32 {
@@ -555,37 +126,10 @@ func PeerIP(conn net.Conn) uint32 {
 	return ToUint32IP(addr.IP)
 }
 
+// EnsureDir 确保指定路径存在，如果路径不存在则创建它，权限为755。
 func EnsureDir(path string) error {
 	if path == "" {
 		return nil
 	}
 	return os.MkdirAll(path, 0o755)
-}
-
-func WriteJSONFile(path string, v any) error {
-	if err := EnsureDir(dirOf(path)); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o600)
-}
-
-func dirOf(path string) string {
-	if path == "" {
-		return ""
-	}
-	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
-		return path[:i]
-	}
-	return ""
-}
-
-func ContextWithCancel(parent context.Context) (context.Context, context.CancelFunc) {
-	if parent == nil {
-		parent = context.Background()
-	}
-	return context.WithCancel(parent)
 }

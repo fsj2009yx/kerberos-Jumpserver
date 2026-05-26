@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	certutil "security-project/common/cert"
 	"security-project/common/krb"
 	"security-project/pkg/utils/log"
 )
@@ -70,7 +71,7 @@ func (s *Service) runWebUI() {
 				http.NotFound(w, r)
 				return
 			}
-			cert, err := krb.CertLoad(c.CertPath)
+			cert, err := certutil.CertLoad(c.CertPath)
 			if err != nil {
 				log.Warnf("[AS] webui cert load failed client=%s path=%s err=%v", id, c.CertPath, err)
 				http.Error(w, err.Error(), http.StatusNotFound)
