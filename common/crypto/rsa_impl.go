@@ -6,6 +6,7 @@ import (
 	"math/big"
 )
 
+// rsaSHA256DigestInfoPrefix 是 PKCS#1 v1.5 中 SHA-256 的 DigestInfo 前缀
 var rsaSHA256DigestInfoPrefix = []byte{
 	0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
 	0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
@@ -27,6 +28,7 @@ func (k *RSAKey) PublicKey() *RSAKey {
 	}
 }
 
+// IsPrivate 判断 RSAKey 是否包含私钥信息，即 D 字段是否存在。
 func (k *RSAKey) IsPrivate() bool {
 	return k != nil && k.N != nil && k.D != nil && k.E != nil
 }
@@ -52,6 +54,7 @@ func rsaModExp(base, exp, mod *big.Int) *big.Int {
 	return result
 }
 
+// rsaModBytes 将大整数转换为固定长度的字节数组，左侧填充零
 func rsaModBytes(modexp *big.Int, size int) []byte {
 	if modexp == nil || size <= 0 {
 		return nil
@@ -66,6 +69,7 @@ func rsaModBytes(modexp *big.Int, size int) []byte {
 	return out
 }
 
+// rsaKeySizeBytes 返回 RSA 密钥的字节长度
 func rsaKeySizeBytes(key *RSAKey) int {
 	if key == nil || key.N == nil {
 		return 0
@@ -73,6 +77,7 @@ func rsaKeySizeBytes(key *RSAKey) int {
 	return (key.N.BitLen() + 7) / 8
 }
 
+// rsaBuildEMSA 构建 EMSA-PKCS1-v1_5 编码的消息摘要
 func rsaBuildEMSA(hash []byte, size int) ([]byte, int32) {
 	if len(hash) != 32 || size < len(rsaSHA256DigestInfoPrefix)+len(hash)+3 {
 		return nil, ErrRSAVerifyFail
@@ -93,6 +98,7 @@ func rsaBuildEMSA(hash []byte, size int) ([]byte, int32) {
 	return em, KRBOK
 }
 
+// rsaSignDigest 使用 RSA 私钥对消息摘要进行签名，返回签名结果和状态码。
 func rsaSignDigest(hash []byte, priv *RSAKey) ([256]byte, int32) {
 	var out [256]byte
 	if priv == nil || !priv.IsPrivate() {
@@ -115,6 +121,7 @@ func rsaSignDigest(hash []byte, priv *RSAKey) ([256]byte, int32) {
 	return out, KRBOK
 }
 
+// rsaVerifyDigest 使用 RSA 公钥验证消息摘要的签名，返回状态码。
 func rsaVerifyDigest(hash []byte, sig []byte, pub *RSAKey) int32 {
 	if pub == nil || pub.N == nil || pub.E == nil {
 		return ErrRSAKeyInvalid
@@ -139,6 +146,7 @@ func rsaVerifyDigest(hash []byte, sig []byte, pub *RSAKey) int32 {
 	return KRBOK
 }
 
+// RsaVerifySignature 使用 RSA 私钥对消息摘要进行签名，返回签名结果和状态码。
 func RsaVerifySignature(seq uint32, cipherData []byte, sig [256]byte, pub *RSAKey) int32 {
 	buf := make([]byte, 4+len(cipherData))
 	binary.BigEndian.PutUint32(buf[:4], seq)
@@ -147,11 +155,13 @@ func RsaVerifySignature(seq uint32, cipherData []byte, sig [256]byte, pub *RSAKe
 	return rsaVerifyDigest(sum[:], sig[:], pub)
 }
 
+// rsaSignMessage 使用 RSA 私钥对消息进行签名，返回签名结果和状态码。
 func rsaSignMessage(msg []byte, priv *RSAKey) ([256]byte, int32) {
 	sum := Sum256(msg)
 	return rsaSignDigest(sum[:], priv)
 }
 
+// rsaVerifyMessage 使用 RSA 公钥验证消息的签名，返回状态码。
 func rsaVerifyMessage(msg []byte, sig [256]byte, pub *RSAKey) int32 {
 	sum := Sum256(msg)
 	return rsaVerifyDigest(sum[:], sig[:], pub)

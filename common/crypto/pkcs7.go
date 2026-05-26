@@ -2,6 +2,7 @@ package crypto
 
 import "errors"
 
+// pkcs7Pad 使用 PKCS#7 填充方案对数据进行填充，使其长度成为 blockSize 的倍数。
 func pkcs7Pad(data []byte, blockSize int) []byte {
 	if blockSize <= 0 {
 		return append([]byte(nil), data...)
@@ -18,6 +19,7 @@ func pkcs7Pad(data []byte, blockSize int) []byte {
 	return out
 }
 
+// pkcs7Unpad 从数据中移除 PKCS#7 填充，返回原始数据。如果填充无效，则返回错误。
 func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
 	if len(data) == 0 || len(data)%blockSize != 0 {
 		return nil, errors.New("invalid padding length")

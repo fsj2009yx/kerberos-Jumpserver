@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"path/filepath"
+	"security-project/common/krb/transport"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func TestHandleConnectionClosesOnPeerErrorPacket(t *testing.T) {
 		close(done)
 	}()
 
-	if err := krb.WritePacket(clientConn, krb.MsgErr, 1, uint32(time.Now().Unix()), krb.BuildErrorPayload(krb.ErrTicketExpired)); err != nil {
+	if err := transport.WritePacket(clientConn, krb.MsgErr, 1, uint32(time.Now().Unix()), krb.BuildErrorPayload(krb.ErrTicketExpired)); err != nil {
 		t.Fatalf("write peer error packet: %v", err)
 	}
 

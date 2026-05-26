@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	certutil "security-project/common/cert"
 	"security-project/common/krb"
 	"security-project/pkg/utils/log"
 )
@@ -148,7 +149,7 @@ func (s *Service) runWebUI() {
 			writeJSONError(w, r, "[V]", "/api/verify_cert", http.StatusNotFound, fmt.Errorf("certificate not found: %s", req.ID))
 			return
 		}
-		if err := krb.CertVerify(cert); err != nil {
+		if err := certutil.CertVerify(cert); err != nil {
 			writeJSONResponse(w, r, "[V]", "/api/verify_cert", map[string]any{"id": req.ID, "result": "fail", "reason": err.Error()})
 			return
 		}

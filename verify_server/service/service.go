@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"security-project/common/crypto"
+	certutil "security-project/common/cert"
+	cryptoutil "security-project/common/crypto"
 	"security-project/common/krb"
 	"security-project/pkg/utils/log"
 	"security-project/verify_server/config"
@@ -20,8 +21,8 @@ type Service struct {
 	startTime   time.Time
 	nextPtyID   uint32
 	ptyFrames   uint64
-	privKey     *crypto.RSAKey
-	clientCerts map[string]*krb.Certificate
+	privKey     *cryptoutil.RSAKey
+	clientCerts map[string]*certutil.Certificate
 	audit       *AuditStore
 	httpServer  *http.Server
 }
@@ -35,25 +36,25 @@ func NewService(configPath string) *Service {
 	}
 
 	// 加载服务端配置的密钥材料，包括KV和RSA私钥，以及客户端证书等信息，并初始化服务状态
-	kv, err := krb.LoadConfiguredKey8(cfg.KVPath, cfg.KVHex, "v k_v")
+	kv, err := cryptoutil.LoadConfiguredKey8(cfg.KVPath, cfg.KVHex, "v k_v")
 	if err != nil {
 		log.Errorf("[V] load k_v failed err=%v", err)
 		panic(fmt.Sprintf("load k_v: %v", err))
 	}
 
 	// 加载RSA私钥用于后续的消息签名操作，确保服务端能够对发送的消息进行数字签名，以便客户端验证消息的真实性和完整性
-	priv, err := krb.LoadRSAPrivateKey(cfg.PrivKeyPath)
+	priv, err := cryptoutil.LoadRSAPrivateKey(cfg.PrivKeyPath)
 	if err != nil {
 		log.Errorf("[V] load private key failed path=%s err=%v", cfg.PrivKeyPath, err)
 		panic(fmt.Sprintf("load private key: %v", err))
 	}
 	if cfg.CertPath != "" {
-		cert, err := krb.CertLoad(cfg.CertPath)
+		cert, err := certutil.CertLoad(cfg.CertPath)
 		if err != nil {
 			log.Errorf("[V] load own certificate failed path=%s err=%v", cfg.CertPath, err)
 			panic(fmt.Sprintf("load own certificate: %v", err))
 		}
-		if err := krb.CertVerify(cert); err != nil {
+		if err := certutil.CertVerify(cert); err != nil {
 			log.Errorf("[V] verify own certificate failed path=%s err=%v", cfg.CertPath, err)
 			panic(fmt.Sprintf("verify own certificate: %v", err))
 		}
@@ -73,7 +74,7 @@ func NewService(configPath string) *Service {
 		state:       &VState{IDV: cfg.NodeID, Kv: kv, Sessions: make(map[string]*SessionContext)},
 		startTime:   time.Now(),
 		privKey:     priv,
-		clientCerts: make(map[string]*krb.Certificate),
+		clientCerts: make(map[string]*certutil.Certificate),
 		audit:       audit,
 	}
 	for _, item := range cfg.ClientDB {
@@ -82,12 +83,12 @@ func NewService(configPath string) *Service {
 			panic(fmt.Sprintf("client cert missing: %s", item.ID))
 		}
 		// 加载客户端证书并存储在服务端的内存中，以便在处理客户端请求时能够验证客户端的身份和消息的签名
-		cert, err := krb.CertLoad(item.CertPath)
+		cert, err := certutil.CertLoad(item.CertPath)
 		if err != nil {
 			log.Errorf("[V] client cert load failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
 			panic(fmt.Sprintf("load client cert %s: %v", item.ID, err))
 		}
-		if err := krb.CertVerify(cert); err != nil {
+		if err := certutil.CertVerify(cert); err != nil {
 			log.Errorf("[V] client cert verify failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
 			panic(fmt.Sprintf("verify client cert %s: %v", item.ID, err))
 		}
