@@ -16,28 +16,6 @@
   "k_v_hex": "4b564b4559313233",
   "pty_default_term": "xterm-256color",
   "cli_whitelist": [],
-  "ssh_targets": [
-    {
-      "id": "prod-1",
-      "host": "10.0.0.11",
-      "port": 22,
-      "ssh_user": "kerberosTest",
-      "auth_type": "password",
-      "password": "kerberos_134579",
-      "known_hosts_path": "./keys/ssh/known_hosts",
-      "allowed_clients": ["CLIENT_1", "CLIENT_2"]
-    },
-    {
-      "id": "test-1",
-      "host": "10.0.0.21",
-      "port": 22,
-      "ssh_user": "kerberosTest",
-      "auth_type": "password",
-      "password": "kerberos_134579",
-      "known_hosts_path": "./keys/ssh/known_hosts",
-      "allowed_clients": ["CLIENT_1"]
-    }
-  ],
   "client_db": [
     {
       "id": "CLIENT_1",

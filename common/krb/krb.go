@@ -1,15 +1,14 @@
+//kerberos中使用的一些工具函数和数据结构，例如重放窗口、密钥加载、IP地址转换等。
+
 package krb
 
 import (
-	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"net"
 	"os"
 	"security-project/common/crypto"
 	"security-project/common/krb/protocol"
-	"strings"
 	"sync"
 	"time"
 )
@@ -72,8 +71,7 @@ func (r *ReplayWindow) CheckScoped(scope string, ts, seq uint32) error {
 	return nil
 }
 
-// LoadKey8 从指定路径加载一个8字节的密钥（DES密钥），
-// 如果路径为空或加载失败，则使用fallbackSeed生成一个8字节的密钥。返回加载的密钥和错误信息。
+// LoadKey8 (测试用）
 func LoadKey8(path string, fallbackSeed string) ([8]byte, error) {
 	var out [8]byte
 	if path != "" {
@@ -109,17 +107,6 @@ func Uint32ToBytes(v uint32) []byte {
 	return out
 }
 
-func BytesToUint32(b []byte) uint32 {
-	return binary.BigEndian.Uint32(b)
-}
-
-func BuildSessionKey(seed string) ([8]byte, int32) {
-	var out [8]byte
-	sum := crypto.Sum256([]byte(seed + time.Now().UTC().Format(time.RFC3339Nano)))
-	copy(out[:], sum[:8])
-	return out, KRBOK
-}
-
 func ToUint32IP(ip net.IP) uint32 {
 	v4 := ip.To4()
 	if v4 == nil {
@@ -139,37 +126,10 @@ func PeerIP(conn net.Conn) uint32 {
 	return ToUint32IP(addr.IP)
 }
 
+// EnsureDir 确保指定路径存在，如果路径不存在则创建它，权限为755。
 func EnsureDir(path string) error {
 	if path == "" {
 		return nil
 	}
 	return os.MkdirAll(path, 0o755)
-}
-
-func WriteJSONFile(path string, v any) error {
-	if err := EnsureDir(dirOf(path)); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o600)
-}
-
-func dirOf(path string) string {
-	if path == "" {
-		return ""
-	}
-	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
-		return path[:i]
-	}
-	return ""
-}
-
-func ContextWithCancel(parent context.Context) (context.Context, context.CancelFunc) {
-	if parent == nil {
-		parent = context.Background()
-	}
-	return context.WithCancel(parent)
 }

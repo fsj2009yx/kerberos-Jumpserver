@@ -72,3 +72,25 @@ export function verifyCertificate(id) {
     body: JSON.stringify({ id }),
   })
 }
+
+export function fetchTargets() {
+  return requestJSON('/api/targets')
+}
+
+export function saveTarget(target) {
+  return requestJSON('/api/targets', {
+    method: 'POST',
+    body: JSON.stringify(target),
+  })
+}
+
+export function fetchTargetPassword(id) {
+  return requestJSON(`/api/targets/${encodeURIComponent(id)}/password`)
+}
+
+export function updateTargetBlockedClients(id, blockedClients) {
+  return requestJSON(`/api/targets/${encodeURIComponent(id)}/blocked_clients`, {
+    method: 'PUT',
+    body: JSON.stringify({ blocked_clients: blockedClients }),
+  })
+}

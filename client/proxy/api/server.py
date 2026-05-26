@@ -435,8 +435,8 @@ async def get_targets():
 
     targets = []
     for target in data.get("targets", []):
-        allowed = target.get("allowed_clients", [])
-        if allowed and config.client_id not in allowed:
+        blocked = target.get("blocked_clients", [])
+        if config.client_id in blocked:
             continue
         targets.append({
             "id": target.get("id", ""),

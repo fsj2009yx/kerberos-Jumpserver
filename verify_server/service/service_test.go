@@ -11,6 +11,8 @@ import (
 
 	"security-project/common/krb"
 	"security-project/verify_server/config"
+	auditrepo "security-project/verify_server/service/audit/repository"
+	auditservices "security-project/verify_server/service/audit/services"
 	"security-project/verify_server/service/pty"
 )
 
@@ -116,10 +118,11 @@ func TestCleanupPTYClosesConnectionKeepsKerberosSessionAndAudits(t *testing.T) {
 		Ctx:          ctx,
 		Cancel:       cancel,
 	}
-	audit, err := NewAuditStore(filepath.Join(t.TempDir(), "audit.db"))
+	auditStore, err := auditrepo.NewStore(filepath.Join(t.TempDir(), "audit.db"))
 	if err != nil {
 		t.Fatalf("new audit store: %v", err)
 	}
+	audit := auditservices.NewManager(auditStore, "verify_server", [8]byte{})
 	defer audit.Close()
 	svc := &Service{
 		state: &VState{Sessions: map[string]*SessionContext{

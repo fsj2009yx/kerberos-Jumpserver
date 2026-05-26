@@ -34,7 +34,7 @@ web/
 ## Run
 
 ```bash
-cd client/web
+cd client/audit
 npm install
 npm start
 ```
