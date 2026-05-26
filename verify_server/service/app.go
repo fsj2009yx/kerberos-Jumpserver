@@ -164,6 +164,9 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 			}
 		}
 	}
+
+	// 无论APP请求的处理结果如何，服务端都会将该请求的相关信息记录到审计日志中
+	//包括请求的操作类型、会话ID、客户端ID、客户端IP、目标信息、SSH用户、PTY会话ID、请求方向、序列号、消息类型、操作结果等。这些审计记录可以帮助服务端追踪每个请求的处理情况和结果，便于后续的安全分析和问题排查。
 	s.appendAudit(AuditRecord{
 		Kind:            "pty",
 		EventType:       "APP_REQ",
@@ -187,73 +190,6 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 	})
 
 	switch plain.PtyOp {
-	case pty.OpOpen:
-		term, cols, rows, err := pty.ParseOpenPayload(plain.Payload)
-		if err != nil {
-			log.Warnf("[V] pty open payload parse failed client=%s err=%v", current.IDClient, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("bad open payload")), err
-		}
-		if term == "" {
-			term = s.Config.PTYDefaultTerm
-		}
-		if current.PTY != nil {
-			s.cleanupPTY(current, "replace pty")
-		}
-
-		//启动一条新的PTY会话，执行指定的shell命令，并将PTY的输入输出与当前会话进行绑定，以便后续的输入输出操作能够正确地路由到对应的PTY会话中。
-		ptySession, startErr := pty.StartSession(s.Config.PTYShell, term, cols, rows)
-		if startErr != nil || ptySession == nil {
-			if startErr == nil {
-				startErr = krb.ErrorFromCode(krb.ErrSessionNotFound)
-			}
-			log.Errorf("[V] pty start failed client=%s shell=%s term=%s cols=%d rows=%d err=%v", current.IDClient, s.Config.PTYShell, term, cols, rows, startErr)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("pty start failed")), startErr
-		}
-
-		// 将新启动的PTY会话与当前会话进行关联，并为当前会话分配一个唯一的PTY会话ID，以便后续的输入输出操作能够正确地路由到对应的PTY会话中
-		s.resetPTYContext(current)
-		current.PTY = ptySession
-		current.PtySessionID = s.nextSessionID()
-		current.TargetID = ""
-		current.TargetHost = ""
-		current.SSHUser = ""
-		current.Closed.Store(false)
-
-		//监听当前会话的取消信号，如果会话被取消，则关闭关联的PTY会话
-		if current.Cancel != nil {
-			go func(sess *SessionContext) {
-				<-sess.Ctx.Done()
-				if sess.PTY != nil {
-					_ = sess.PTY.Close()
-				}
-			}(current)
-		}
-
-		// 启动一个新的goroutine来处理当前PTY会话的输入输出流，将PTY的输出数据通过回调函数发送给客户端
-		//并在每次处理输入输出时更新当前会话的统计信息和最后一次IO时间戳，确保会话的活跃程度和交互量能够被正确地监控和记录
-		go pty.StreamOutput(current.PTY, pty.StreamCallbacks{
-			ClientID:   current.IDClient,
-			SessionID:  current.PtySessionID,
-			Done:       current.Ctx.Done(),
-			NextSeq:    nextSeq,
-			SendPacket: sendPacket,
-			BuildPayload: func(seq uint32, event uint8, sessionID uint32, exitCode int32, payload []byte) []byte {
-				return s.buildAPPRep(current, seq, event, sessionID, exitCode, payload)
-			},
-			OnFrame: func() {
-				atomic.AddUint64(&current.TotalFrames, 1)
-				atomic.AddUint64(&s.ptyFrames, 1)
-			},
-			OnIO: func(at time.Time) {
-				current.LastIO = at
-			},
-			IsClosed: func() bool {
-				return current.Closed.Load()
-			},
-		})
-		out := []byte(fmt.Sprintf("open ok: %s", current.IDClient))
-		log.Infof("[V] pty opened client=%s pty_session_id=%d term=%s cols=%d rows=%d", current.IDClient, current.PtySessionID, term, cols, rows)
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventOpenOK, current.PtySessionID, -1, out), nil
 	case pty.OpOpenSSH:
 		targetID, term, cols, rows, err := pty.ParseOpenSSHPayload(plain.Payload)
 		if err != nil {
@@ -379,6 +315,10 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 
 // handleAppPacket 处理来自客户端的APP消息，首先检查会话是否已经认证和存在，如果未认证或会话不存在，则拒绝处理并返回错误；
 func (s *Service) handleAppPacket(c *ConnState, h krb.ProtocolHeader, payload []byte) bool {
+
+	// 如果当前连接的会话上下文为nil，说明该连接尚未绑定到任何会话，此时服务端会尝试从APP请求的payload中解析出客户端ID
+	//并根据客户端ID查找对应的会话，如果找到有效的会话且未过期，则将该连接绑定到该会话，并标记为已认证和已绑定
+	//如果解析失败、客户端ID缺失、会话不存在或会话过期，则拒绝处理请求并返回相应的错误信息
 	if c.current == nil {
 		req, err := krb.ParseAPPReqPayload(payload)
 		if err != nil {

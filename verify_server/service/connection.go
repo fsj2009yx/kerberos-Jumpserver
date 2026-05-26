@@ -25,7 +25,10 @@ type ConnState struct {
 	sendSeq uint32
 	writeMu sync.Mutex
 
-	authed   bool
+	//authed表示连接是否已经通过认证，只有在认证成功后才允许进行后续的操作，如创建会话、执行命令等
+	authed bool
+	// current字段指向当前的SessionContext，表示当前连接正在处理哪个会话
+	//当连接接收到一个新的请求时，会根据请求中的信息找到对应的SessionContext，并将其赋值给current字段，以便后续的操作能够正确地关联到该会话。
 	current  *SessionContext
 	appBound bool
 }

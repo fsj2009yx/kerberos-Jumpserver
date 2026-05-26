@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,8 @@ import (
 	tgsservice "security-project/tgs_server/service"
 	verifyconfig "security-project/verify_server/config"
 	verifyservice "security-project/verify_server/service"
+
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -35,9 +38,10 @@ const (
 	ptyEventOpenOK    = 0x11
 	ptyEventOutput    = 0x12
 	ptyEventExit      = 0x13
-	ptyOpOpen         = 0x01
 	ptyOpInput        = 0x02
 	ptyOpClose        = 0x05
+	ptyOpOpenSSH      = 0x06
+	testSSHTargetID   = "test-ssh"
 )
 
 type testEnv struct {
@@ -117,8 +121,10 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 
 	clientEntriesAS := make([]asconfig.ClientEntry, 0, n)
 	clientEntriesV := make([]verifyconfig.ClientCertEntry, 0, n)
+	allowedClients := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		clientID := fmt.Sprintf("CLIENT_%03d", i+1)
+		allowedClients = append(allowedClients, clientID)
 		clientCertPath := filepath.Join(certsDir, strings.ToLower(clientID)+"_cert.json")
 		writeCertificate(t, clientCertPath, clientID, "TEST_ISSUER", "2035-12-31", clientPriv, clientPub)
 		kc, err := krb.LoadKey8("", "kc:"+clientID)
@@ -142,6 +148,15 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 	tgsWebPort := freePort(t)
 	vPort := freePort(t)
 	vWebPort := freePort(t)
+	sshAddr := startTestSSHServer(t)
+	sshHost, sshPortRaw, err := net.SplitHostPort(sshAddr)
+	if err != nil {
+		t.Fatalf("parse test ssh addr: %v", err)
+	}
+	sshPort, err := strconv.Atoi(sshPortRaw)
+	if err != nil {
+		t.Fatalf("parse test ssh port: %v", err)
+	}
 
 	asCfg := asconfig.Config{
 		NodeID:            "AS",
@@ -199,9 +214,19 @@ func setupConcurrentEnv(t *testing.T, n int) *testEnv {
 		SecurityLogFile:  filepath.Join(logsDir, "v_security.log"),
 		AuditDBFile:      filepath.Join(logsDir, "v_audit.db"),
 		KVPath:           kVPath,
-		PTYShell:         "/bin/sh",
 		PTYDefaultTerm:   "xterm-256color",
 		ClientDB:         clientEntriesV,
+		SSHTargets: []verifyconfig.SSHTarget{
+			{
+				ID:             testSSHTargetID,
+				Host:           sshHost,
+				Port:           sshPort,
+				SSHUser:        "test-user",
+				AuthType:       "password",
+				Password:       "test-password",
+				AllowedClients: allowedClients,
+			},
+		},
 	}
 
 	asCfgPath := filepath.Join(root, "as_config.json")
@@ -393,8 +418,8 @@ func doV(addr, clientID string, adc uint32, keyCV [8]byte, ticketV []byte, clien
 	}
 
 	vSeq++
-	openPayload := buildOpenPayload("xterm-256color", 80, 24)
-	appOpen, err := buildAPPReqPayload(clientID, vSeq, keyCV, ptyOpOpen, 0, openPayload, clientPriv)
+	openPayload := buildOpenSSHPayload(testSSHTargetID, "xterm-256color", 80, 24)
+	appOpen, err := buildAPPReqPayload(clientID, vSeq, keyCV, ptyOpOpenSSH, 0, openPayload, clientPriv)
 	if err != nil {
 		return err
 	}
@@ -579,8 +604,9 @@ func buildAPPReqPayload(clientID string, seq uint32, keyCV [8]byte, ptyOp uint8,
 	return wire.Bytes(), nil
 }
 
-func buildOpenPayload(term string, cols, rows uint16) []byte {
+func buildOpenSSHPayload(targetID, term string, cols, rows uint16) []byte {
 	raw := bytes.NewBuffer(nil)
+	raw.Write(krb.EncodeKString(targetID))
 	raw.Write(krb.EncodeKString(term))
 	var tmp2 [2]byte
 	binary.BigEndian.PutUint16(tmp2[:], cols)
@@ -702,6 +728,90 @@ func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func startTestSSHServer(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("start test ssh listener: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ln.Close()
+	})
+
+	hostKey, err := stdrsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate test ssh host key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(hostKey)
+	if err != nil {
+		t.Fatalf("build test ssh host signer: %v", err)
+	}
+	cfg := &ssh.ServerConfig{
+		PasswordCallback: func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+			return nil, nil
+		},
+	}
+	cfg.AddHostKey(signer)
+
+	go func() {
+		for {
+			raw, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go handleTestSSHConn(raw, cfg)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func handleTestSSHConn(raw net.Conn, cfg *ssh.ServerConfig) {
+	conn, chans, reqs, err := ssh.NewServerConn(raw, cfg)
+	if err != nil {
+		_ = raw.Close()
+		return
+	}
+	defer conn.Close()
+	go ssh.DiscardRequests(reqs)
+	for ch := range chans {
+		if ch.ChannelType() != "session" {
+			_ = ch.Reject(ssh.UnknownChannelType, "unsupported channel")
+			continue
+		}
+		channel, requests, err := ch.Accept()
+		if err != nil {
+			continue
+		}
+		go handleTestSSHSession(channel, requests)
+	}
+}
+
+func handleTestSSHSession(channel ssh.Channel, requests <-chan *ssh.Request) {
+	defer channel.Close()
+	go func() {
+		for req := range requests {
+			switch req.Type {
+			case "pty-req", "shell", "window-change", "signal":
+				_ = req.Reply(true, nil)
+			default:
+				_ = req.Reply(false, nil)
+			}
+		}
+	}()
+	buf := make([]byte, 4096)
+	for {
+		n, err := channel.Read(buf)
+		if n > 0 {
+			if _, writeErr := channel.Write(buf[:n]); writeErr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
 	}
 }
 

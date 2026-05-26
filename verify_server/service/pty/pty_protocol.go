@@ -12,30 +12,12 @@ const (
 	EventExit   = 0x13
 	EventError  = 0x14
 
-	OpOpen    = 0x01
 	OpInput   = 0x02
 	OpResize  = 0x03
 	OpSignal  = 0x04
 	OpClose   = 0x05
 	OpOpenSSH = 0x06
 )
-
-// ParseOpenPayload 解析Open事件的payload，格式为：
-// [termLen(2 bytes)][term(termLen bytes)][cols(2 bytes)][rows(2 bytes)]
-// 其中termLen为term的长度，cols和rows分别为终端的列数和行数
-func ParseOpenPayload(raw []byte) (string, uint16, uint16, error) {
-	if len(raw) < 2 {
-		return "", 0, 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
-	}
-	termLen := int(binary.BigEndian.Uint16(raw[:2]))
-	if len(raw) < 2+termLen+4 {
-		return "", 0, 0, krb.ErrorFromCode(krb.ErrTicketInvalid)
-	}
-	term := string(raw[2 : 2+termLen])
-	cols := binary.BigEndian.Uint16(raw[2+termLen : 2+termLen+2])
-	rows := binary.BigEndian.Uint16(raw[2+termLen+2 : 2+termLen+4])
-	return term, cols, rows, nil
-}
 
 // ParseOpenSSHPayload 解析远端 SSH PTY 打开请求的 payload，格式为：
 // [targetLen(2 bytes)][target(targetLen bytes)][termLen(2 bytes)][term(termLen bytes)][cols(2 bytes)][rows(2 bytes)]

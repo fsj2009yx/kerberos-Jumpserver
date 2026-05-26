@@ -280,20 +280,19 @@ SSHTargets []SSHTarget `json:"ssh_targets"`
 
 ### 5.2 终端 Session 抽象
 
-当前 V 使用本地 PTY：
+当前 V 使用 SSH remote PTY：
 
 ```text
 verify_server/service/pty
 ```
 
-建议拆成终端抽象：
+终端抽象：
 
 ```text
-verify_server/service/terminal
+verify_server/service/pty
   protocol.go       // Op/Open/Resize/Signal payload 编解码
   session.go        // 统一接口
-  local_pty.go      // 原本地 PTY，可选保留
-  ssh_session.go    // 新增 SSH remote PTY
+  ssh_session.go    // SSH remote PTY
 ```
 
 统一接口建议：
@@ -308,15 +307,9 @@ type Session interface {
 }
 ```
 
-也可以先保持现有 `pty.Session` 的外形，新增 SSH 实现时尽量少改 `app.go`。
+本地 shell PTY 分支已移除，`pty.Session` 只承载 SSH 会话读写和回调。
 
-### 5.3 新增 SSH remote PTY 实现
-
-新增：
-
-```text
-verify_server/service/sshpty/session.go
-```
+### 5.3 SSH remote PTY 实现
 
 使用：
 
@@ -338,7 +331,7 @@ session.Shell()
 
 输出流需要合并 stdout/stderr 后进入现有 `StreamOutput` 逻辑。
 
-### 5.4 修改 APP OPEN 处理
+### 5.4 APP OPEN 处理
 
 修改：
 
@@ -349,22 +342,11 @@ verify_server/service/app.go
 当前逻辑：
 
 ```go
-case pty.OpOpen:
-    term, cols, rows := ParseOpenPayload(...)
-    pty.StartSession(s.Config.PTYShell, term, cols, rows)
-```
-
-目标逻辑：
-
-```go
-case terminal.OpOpenLocal:
-    // 保留本地 shell，可选
-
-case terminal.OpOpenSSH:
+case pty.OpOpenSSH:
     targetID, term, cols, rows := ParseOpenSSHPayload(...)
     target := s.lookupSSHTarget(targetID)
     s.checkTargetPermission(current.IDClient, target)
-    sshSession := sshpty.StartSession(target, term, cols, rows)
+    sshSession := pty.StartSSHSession(target, term, cols, rows)
 ```
 
 权限检查：
