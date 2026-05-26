@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { fetchSessions } from '../api/verify'
-import { formatADc, formatTime } from '../utils/format'
+import { formatTime } from '../utils/format'
 
 const loading = ref(false)
 const sessions = ref([])
@@ -15,7 +15,7 @@ const rows = computed(() => {
     if (!text) {
       return true
     }
-    return [item.client_id, item.pty_session_id, item.client_ip, item.ad_c, item.k_cv_sha256]
+    return [item.client_id, item.pty_session_id, item.client_addr, item.target_id, item.k_cv_sha256]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(text))
   })
@@ -56,10 +56,8 @@ onMounted(load)
     <section class="panel">
       <el-table v-loading="loading" :data="rows" stripe>
         <el-table-column prop="client_id" label="Client" min-width="140" />
-        <el-table-column prop="client_ip" label="Remote" min-width="170" />
-        <el-table-column label="ADc" min-width="170">
-          <template #default="{ row }">{{ formatADc(row.ad_c) }}</template>
-        </el-table-column>
+        <el-table-column prop="client_addr" label="Remote" min-width="170" />
+        <el-table-column prop="target_id" label="Target" min-width="120" />
         <el-table-column prop="pty_session_id" label="PTY" width="90" />
         <el-table-column label="Frames" width="110">
           <template #default="{ row }">{{ row.total_frames || 0 }}</template>

@@ -250,10 +250,8 @@ func (s *Service) cleanupPTY(sess *SessionContext, reason string) {
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "PTY_CLEANUP",
-			SessionID:    auditSessionID(sess.IDClient, ptySessionID),
 			ClientID:     sess.IDClient,
-			ClientIP:     sess.ClientIP,
-			ADc:          sess.ADc,
+			ClientAddr:   sess.ClientAddr,
 			TargetID:     targetID,
 			TargetHost:   targetHost,
 			SSHUser:      sshUser,

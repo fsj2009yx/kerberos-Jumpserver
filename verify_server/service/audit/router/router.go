@@ -24,8 +24,8 @@ func New(audit *auditservices.Manager, runtime handler.Runtime) *gin.Engine {
 	api.PUT("/targets/:id/blocked_clients", h.UpdateTargetBlockedClients)
 	api.GET("/auth_log", h.AuthLog)
 	api.GET("/pty_log", h.PTYLog)
-	api.GET("/audit/session/:id", h.AuditSession)
-	api.GET("/audit/replay/:id", h.AuditReplay)
+	api.GET("/audit/frames", h.AuditFrames)
+	api.GET("/audit/replay", h.AuditReplay)
 	api.GET("/cert/:id", h.Certificate)
 	api.POST("/verify_cert", h.VerifyCertificate)
 

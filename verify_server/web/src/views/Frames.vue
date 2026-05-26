@@ -2,14 +2,17 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
-import { fetchPtyLog } from '../api/verify'
+import { fetchPtyLog, fetchTargets } from '../api/verify'
 import FrameCard from '../components/FrameCard.vue'
 import { decodeBase64 } from '../utils/format'
 
 const loading = ref(false)
 const logs = ref([])
+const targets = ref([])
 const limit = ref(100)
 const keyword = ref('')
+const clientId = ref('')
+const targetId = ref('')
 const direction = ref('')
 const result = ref('')
 const frameType = ref('')
@@ -37,8 +40,8 @@ const filteredLogs = computed(() => {
     const payload = decodeBase64(item.payload_b64)
     return [
       item.client_id,
-      item.client_ip,
-      item.session_id,
+      item.client_addr,
+      item.target_id,
       item.pty_session_id,
       item.event_type,
       item.frame_type,
@@ -53,7 +56,10 @@ const filteredLogs = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const data = await fetchPtyLog(limit.value)
+    const data = await fetchPtyLog(limit.value, {
+      client_id: clientId.value,
+      target_id: targetId.value,
+    })
     logs.value = data?.logs || []
   } catch (error) {
     ElMessage.error(error.message || String(error))
@@ -62,7 +68,19 @@ async function load() {
   }
 }
 
-onMounted(load)
+async function loadTargets() {
+  try {
+    const data = await fetchTargets()
+    targets.value = data.targets || []
+  } catch (error) {
+    ElMessage.error(error.message || String(error))
+  }
+}
+
+onMounted(() => {
+  loadTargets()
+  load()
+})
 </script>
 
 <template>
@@ -76,7 +94,11 @@ onMounted(load)
     </section>
 
     <section class="filter-bar">
-      <el-input v-model="keyword" clearable placeholder="搜索 Client / Session / Payload" :prefix-icon="Search" />
+      <el-input v-model="clientId" clearable placeholder="CLIENT_1" :prefix-icon="Search" />
+      <el-select v-model="targetId" clearable filterable placeholder="SSH 节点">
+        <el-option v-for="target in targets" :key="target.id" :label="target.id" :value="target.id" />
+      </el-select>
+      <el-input v-model="keyword" clearable placeholder="搜索 Payload / Frame" :prefix-icon="Search" />
       <el-select v-model="direction" clearable placeholder="方向">
         <el-option label="C->V" value="C->V" />
         <el-option label="V->C" value="V->C" />
@@ -88,7 +110,6 @@ onMounted(load)
       <el-select v-model="frameType" clearable placeholder="类型">
         <el-option v-for="item in frameTypes" :key="item" :label="item" :value="item" />
       </el-select>
-      <el-input-number v-model="limit" :min="10" :max="1000" :step="10" controls-position="right" />
     </section>
 
     <section class="list-summary">

@@ -17,9 +17,9 @@ func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 	}
 
 	for _, rec := range []model.Record{
-		{Kind: "auth", EventType: "AP_REQ", SessionID: "CLIENT_1", ClientID: "CLIENT_1", Result: "ok"},
-		{Kind: "pty", EventType: "APP_REQ", SessionID: "CLIENT_1:7", ClientID: "CLIENT_1", PTYSessionID: 7, FrameType: "input", PayloadB64: auditPayload([]byte("ls\n")), Result: "ok"},
-		{Kind: "pty", EventType: "APP_REP", SessionID: "CLIENT_1:7", ClientID: "CLIENT_1", PTYSessionID: 7, FrameType: "output", PayloadB64: auditPayload([]byte("ok\n")), Result: "ok"},
+		{Kind: "auth", EventType: "AP_REQ", ClientID: "CLIENT_1", Result: "ok"},
+		{Kind: "pty", EventType: "APP_REQ", ClientID: "CLIENT_1", TargetID: "prod-1", PTYSessionID: 7, FrameType: "input", PayloadB64: auditPayload([]byte("ls\n")), Result: "ok"},
+		{Kind: "pty", EventType: "APP_REP", ClientID: "CLIENT_1", TargetID: "prod-1", PTYSessionID: 7, FrameType: "output", PayloadB64: auditPayload([]byte("ok\n")), Result: "ok"},
 	} {
 		if err := store.Append(rec); err != nil {
 			t.Fatalf("append audit record: %v", err)
@@ -59,7 +59,7 @@ func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 		t.Fatalf("reopen audit store: %v", err)
 	}
 	defer reopened.Close()
-	if err := reopened.Append(model.Record{Kind: "auth", EventType: "APP_REQ", SessionID: "CLIENT_1:7", ClientID: "CLIENT_1", Result: "fail", ErrorCode: "ERR_TEST"}); err != nil {
+	if err := reopened.Append(model.Record{Kind: "auth", EventType: "APP_REQ", ClientID: "CLIENT_1", Result: "fail", ErrorCode: "ERR_TEST"}); err != nil {
 		t.Fatalf("append after reopen: %v", err)
 	}
 	records, err = reopened.Records(1, nil)

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 
 	"security-project/verify_server/service/audit/model"
 	auditservices "security-project/verify_server/service/audit/services"
@@ -36,18 +37,17 @@ func auditLimit(raw string) int {
 	return limit
 }
 
-func auditSessionFilter(id string) func(model.Record) bool {
+func auditTargetFilter(clientID string, targetID string) func(model.Record) bool {
+	clientID = strings.TrimSpace(clientID)
+	targetID = strings.TrimSpace(targetID)
 	return func(rec model.Record) bool {
-		if id == "" {
+		if clientID != "" && rec.ClientID != clientID {
 			return false
 		}
-		if rec.SessionID == id || rec.ClientID == id {
-			return true
+		if targetID != "" && rec.TargetID != targetID {
+			return false
 		}
-		if rec.PTYSessionID > 0 && strconv.FormatUint(uint64(rec.PTYSessionID), 10) == id {
-			return true
-		}
-		return false
+		return clientID != "" || targetID != ""
 	}
 }
 

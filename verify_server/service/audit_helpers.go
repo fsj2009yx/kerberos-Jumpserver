@@ -17,13 +17,6 @@ func auditPayload(raw []byte) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
-func auditSessionID(clientID string, ptySessionID uint32) string {
-	if ptySessionID == 0 {
-		return clientID
-	}
-	return fmt.Sprintf("%s:%d", clientID, ptySessionID)
-}
-
 func auditPTYOpName(op uint8) string {
 	switch op {
 	case 0x01:

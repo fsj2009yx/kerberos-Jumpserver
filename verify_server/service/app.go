@@ -19,10 +19,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "APP_REQ",
-			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
-			ClientIP:     current.ClientIP,
-			ADc:          current.ADc,
+			ClientAddr:   current.ClientAddr,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
 			SeqNum:       h.SeqNum,
@@ -40,10 +38,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "APP_REQ",
-			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
-			ClientIP:     current.ClientIP,
-			ADc:          current.ADc,
+			ClientAddr:   current.ClientAddr,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
 			SeqNum:       h.SeqNum,
@@ -61,10 +57,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "APP_REQ",
-			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
-			ClientIP:     current.ClientIP,
-			ADc:          current.ADc,
+			ClientAddr:   current.ClientAddr,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
 			SeqNum:       h.SeqNum,
@@ -83,10 +77,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:            "pty",
 			EventType:       "APP_REQ",
-			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
-			ClientIP:        current.ClientIP,
-			ADc:             current.ADc,
+			ClientAddr:      current.ClientAddr,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
 			SeqNum:          h.SeqNum,
@@ -108,10 +100,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:            "pty",
 			EventType:       "APP_REQ",
-			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
-			ClientIP:        current.ClientIP,
-			ADc:             current.ADc,
+			ClientAddr:      current.ClientAddr,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
 			SeqNum:          h.SeqNum,
@@ -129,10 +119,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:            "pty",
 			EventType:       "APP_REQ",
-			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
-			ClientIP:        current.ClientIP,
-			ADc:             current.ADc,
+			ClientAddr:      current.ClientAddr,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
 			SeqNum:          h.SeqNum,
@@ -170,10 +158,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 	s.appendAudit(AuditRecord{
 		Kind:            "pty",
 		EventType:       "APP_REQ",
-		SessionID:       auditSessionID(current.IDClient, plain.PtySessionID),
 		ClientID:        current.IDClient,
-		ClientIP:        current.ClientIP,
-		ADc:             current.ADc,
+		ClientAddr:      current.ClientAddr,
 		TargetID:        auditTargetID,
 		TargetHost:      auditTargetHost,
 		SSHUser:         auditSSHUser,
@@ -346,7 +332,7 @@ func (s *Service) handleAppPacket(c *ConnState, h krb.ProtocolHeader, payload []
 			_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketExpired))
 			return false
 		}
-		sess.ClientIP = c.remote
+		sess.ClientAddr = c.remote
 		c.current = sess
 		c.authed = true
 		c.appBound = true
@@ -399,10 +385,8 @@ func (s *Service) buildAPPRep(current *SessionContext, seq uint32, event uint8, 
 	s.appendAudit(AuditRecord{
 		Kind:         "pty",
 		EventType:    "APP_REP",
-		SessionID:    auditSessionID(current.IDClient, ptySessionID),
 		ClientID:     current.IDClient,
-		ClientIP:     current.ClientIP,
-		ADc:          current.ADc,
+		ClientAddr:   current.ClientAddr,
 		TargetID:     current.TargetID,
 		TargetHost:   current.TargetHost,
 		SSHUser:      current.SSHUser,

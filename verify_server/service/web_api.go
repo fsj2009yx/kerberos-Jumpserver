@@ -51,8 +51,7 @@ func (s *Service) Sessions() []map[string]any {
 		sum := krb.Hash256(sess.KeyCV[:])
 		out = append(out, map[string]any{
 			"client_id":       sess.IDClient,
-			"client_ip":       sess.ClientIP,
-			"ad_c":            sess.ADc,
+			"client_addr":     sess.ClientAddr,
 			"target_id":       sess.TargetID,
 			"target_host":     sess.TargetHost,
 			"ssh_user":        sess.SSHUser,

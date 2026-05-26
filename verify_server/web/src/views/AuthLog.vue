@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { fetchAuthLog } from '../api/verify'
-import { formatADc, formatTime, tagTypeForResult } from '../utils/format'
+import { formatTime, tagTypeForResult } from '../utils/format'
 
 const loading = ref(false)
 const logs = ref([])
@@ -16,7 +16,7 @@ const filteredLogs = computed(() => {
     return logs.value
   }
   return logs.value.filter((item) =>
-    [item.client_id, item.client_ip, item.session_id, item.event_type, item.error_code, item.result]
+    [item.client_id, item.client_addr, item.event_type, item.error_code, item.result]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(text)),
   )
@@ -58,10 +58,7 @@ onMounted(load)
           <template #default="{ row }">{{ formatTime(row.time || row.ts) }}</template>
         </el-table-column>
         <el-table-column prop="client_id" label="Client" min-width="130" />
-        <el-table-column prop="client_ip" label="Remote" min-width="170" />
-        <el-table-column label="ADc" min-width="170">
-          <template #default="{ row }">{{ formatADc(row.ad_c) }}</template>
-        </el-table-column>
+        <el-table-column prop="client_addr" label="Remote" min-width="170" />
         <el-table-column prop="event_type" label="事件" width="120" />
         <el-table-column label="RSA" width="100">
           <template #default="{ row }">

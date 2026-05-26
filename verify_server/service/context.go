@@ -12,7 +12,7 @@ import (
 
 type SessionContext struct {
 	IDClient     string
-	ClientIP     string
+	ClientAddr   string
 	ADc          uint32
 	KeyCV        [8]byte
 	ExpireAt     uint32
