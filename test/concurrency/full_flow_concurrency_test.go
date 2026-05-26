@@ -13,6 +13,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	certutil "security-project/common/cert"
+	"security-project/common/krb/transport"
 	"strconv"
 	"strings"
 	"sync"
@@ -300,10 +302,10 @@ func doAS(addr, clientID string, kc [8]byte) ([8]byte, []byte, error) {
 
 	ts1 := uint32(time.Now().Unix())
 	reqPayload := buildASReqPayload(clientID, idTGS, ts1)
-	if err := krb.WritePacket(conn, krb.MsgASReq, 1, ts1, reqPayload); err != nil {
+	if err := transport.WritePacket(conn, krb.MsgASReq, 1, ts1, reqPayload); err != nil {
 		return zero, nil, err
 	}
-	h, payload, err := krb.ReadPacket(conn, 64*1024)
+	h, payload, err := transport.ReadPacket(conn, 64*1024)
 	if err != nil {
 		return zero, nil, err
 	}
@@ -346,10 +348,10 @@ func doTGS(addr, clientID string, adc uint32, keyCTGS [8]byte, ticketTGS []byte)
 		return zero, nil, err
 	}
 	reqPayload := buildTGSReqPayload(idV, ticketTGS, authCipher)
-	if err := krb.WritePacket(conn, krb.MsgTGSReq, 1, ts3, reqPayload); err != nil {
+	if err := transport.WritePacket(conn, krb.MsgTGSReq, 1, ts3, reqPayload); err != nil {
 		return zero, nil, err
 	}
-	h, payload, err := krb.ReadPacket(conn, 64*1024)
+	h, payload, err := transport.ReadPacket(conn, 64*1024)
 	if err != nil {
 		return zero, nil, err
 	}
@@ -392,10 +394,10 @@ func doV(addr, clientID string, adc uint32, keyCV [8]byte, ticketV []byte, clien
 		return err
 	}
 	apPayload := buildAPReqPayload(ticketV, authCipher)
-	if err := krb.WritePacket(conn, krb.MsgAPReq, vSeq, ts5, apPayload); err != nil {
+	if err := transport.WritePacket(conn, krb.MsgAPReq, vSeq, ts5, apPayload); err != nil {
 		return err
 	}
-	h, payload, err := krb.ReadPacket(conn, 64*1024)
+	h, payload, err := transport.ReadPacket(conn, 64*1024)
 	if err != nil {
 		return err
 	}
@@ -423,7 +425,7 @@ func doV(addr, clientID string, adc uint32, keyCV [8]byte, ticketV []byte, clien
 	if err != nil {
 		return err
 	}
-	if err := krb.WritePacket(conn, krb.MsgApp, vSeq, uint32(time.Now().Unix()), appOpen); err != nil {
+	if err := transport.WritePacket(conn, krb.MsgApp, vSeq, uint32(time.Now().Unix()), appOpen); err != nil {
 		return err
 	}
 	var sessionID uint32
@@ -452,7 +454,7 @@ func doV(addr, clientID string, adc uint32, keyCV [8]byte, ticketV []byte, clien
 	if err != nil {
 		return err
 	}
-	if err := krb.WritePacket(conn, krb.MsgApp, vSeq, uint32(time.Now().Unix()), appInput); err != nil {
+	if err := transport.WritePacket(conn, krb.MsgApp, vSeq, uint32(time.Now().Unix()), appInput); err != nil {
 		return err
 	}
 	var outputBuf bytes.Buffer
@@ -480,7 +482,7 @@ closeSession:
 	if err != nil {
 		return err
 	}
-	if err := krb.WritePacket(conn, krb.MsgApp, vSeq, uint32(time.Now().Unix()), appClose); err != nil {
+	if err := transport.WritePacket(conn, krb.MsgApp, vSeq, uint32(time.Now().Unix()), appClose); err != nil {
 		return err
 	}
 	closeDeadline := time.Now().Add(10 * time.Second)
@@ -497,7 +499,7 @@ closeSession:
 }
 
 func readAPPFrame(conn net.Conn, keyCV [8]byte, vPub *cryptoutil.RSAKey) (krb.APPRepPlain, error) {
-	h, payload, err := krb.ReadPacket(conn, 64*1024)
+	h, payload, err := transport.ReadPacket(conn, 64*1024)
 	if err != nil {
 		return krb.APPRepPlain{}, err
 	}
@@ -671,14 +673,14 @@ func decodeErrorPayload(payload []byte) error {
 
 func writeCertificate(t *testing.T, path, id, issuer, expire string, signerPriv, pub *cryptoutil.RSAKey) {
 	t.Helper()
-	cert := &krb.Certificate{
+	cert := &certutil.Certificate{
 		ID:     id,
 		Issuer: issuer,
 		Expire: expire,
 	}
 	cert.PublicKey.N = fmt.Sprintf("%x", pub.N)
 	cert.PublicKey.E = fmt.Sprintf("%x", pub.E)
-	body, err := krb.CertBodyBytes(cert)
+	body, err := certutil.CertBodyBytes(cert)
 	if err != nil {
 		t.Fatalf("build cert body: %v", err)
 	}
@@ -692,7 +694,7 @@ func writeCertificate(t *testing.T, path, id, issuer, expire string, signerPriv,
 
 func writeRSAKeyJSON(t *testing.T, path string, key *cryptoutil.RSAKey) {
 	t.Helper()
-	doc := krb.RSAKeyJSON{
+	doc := cryptoutil.RSAKeyJSON{
 		N: fmt.Sprintf("%x", key.N),
 		E: fmt.Sprintf("%x", key.E),
 		D: fmt.Sprintf("%x", key.D),
