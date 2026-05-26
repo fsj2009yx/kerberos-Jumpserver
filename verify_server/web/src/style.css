@@ -475,16 +475,23 @@ h3 {
   min-width: 0;
 }
 
-.target-form .el-form-item:nth-last-child(2) {
-  grid-column: span 2;
+.target-form .el-form-item:last-child {
+  grid-column: 1 / -1;
 }
 
-.target-form-actions {
+.target-form .el-input-tag {
+  width: 100%;
+}
+
+.target-dialog .el-dialog__body {
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+}
+
+.target-dialog-actions {
   display: flex;
   gap: 10px;
-  align-items: flex-end;
   justify-content: flex-end;
-  padding-bottom: 18px;
 }
 
 .target-list {
@@ -558,41 +565,6 @@ h3 {
 
 .target-password code {
   overflow-wrap: anywhere;
-}
-
-.target-mask {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 14px;
-  background: rgba(18, 30, 42, 0.38);
-}
-
-.target-mask-panel {
-  width: min(520px, 100%);
-  border: 1px solid #dce3ea;
-  border-radius: 8px;
-  padding: 14px;
-  background: #fff;
-  box-shadow: 0 14px 34px rgba(20, 33, 46, 0.2);
-}
-
-.target-mask-head,
-.target-mask-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.target-mask-head {
-  margin-bottom: 12px;
-}
-
-.target-mask-actions {
-  justify-content: flex-end;
-  margin-top: 12px;
 }
 
 .inline-code {
