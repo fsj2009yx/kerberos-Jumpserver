@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +12,8 @@ import (
 	"security-project/common/krb"
 	"security-project/pkg/utils/log"
 	"security-project/verify_server/config"
+	auditrepo "security-project/verify_server/service/audit/repository"
+	auditservices "security-project/verify_server/service/audit/services"
 )
 
 type Service struct {
@@ -23,8 +24,7 @@ type Service struct {
 	ptyFrames   uint64
 	privKey     *cryptoutil.RSAKey
 	clientCerts map[string]*certutil.Certificate
-	audit       *AuditStore
-	httpServer  *http.Server
+	audit       *auditservices.Manager
 }
 
 func NewService(configPath string) *Service {
@@ -64,7 +64,7 @@ func NewService(configPath string) *Service {
 		}
 	}
 	auditPath := cfg.AuditPath()
-	audit, err := NewAuditStore(auditPath)
+	auditStore, err := auditrepo.NewStore(auditPath)
 	if err != nil {
 		log.Errorf("[V] init audit store failed path=%s err=%v", auditPath, err)
 		panic(fmt.Sprintf("init audit store: %v", err))
@@ -75,7 +75,11 @@ func NewService(configPath string) *Service {
 		startTime:   time.Now(),
 		privKey:     priv,
 		clientCerts: make(map[string]*certutil.Certificate),
-		audit:       audit,
+		audit:       auditservices.NewManager(auditStore, cfg.NodeID, kv),
+	}
+	if err := s.importConfigSSHTargets(); err != nil {
+		log.Errorf("[V] import ssh targets failed err=%v", err)
+		panic(fmt.Sprintf("import ssh targets: %v", err))
 	}
 	for _, item := range cfg.ClientDB {
 		if item.CertPath == "" {
@@ -99,8 +103,24 @@ func NewService(configPath string) *Service {
 		s.clientCerts[item.ID] = cert
 		log.Infof("[V] client cert loaded and verified client=%s path=%s", item.ID, item.CertPath)
 	}
-	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d ssh_targets=%d", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), len(cfg.SSHTargets))
+	targets, _ := s.audit.ListSSHTargets()
+	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d ssh_targets=%d", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), len(targets))
 	return s
+}
+
+func (s *Service) importConfigSSHTargets() error {
+	if s == nil || s.Config == nil || len(s.Config.SSHTargets) == 0 {
+		return nil
+	}
+	for _, target := range s.Config.SSHTargets {
+		if len(target.AllowedClients) > 0 && len(target.BlockedClients) == 0 {
+			target.BlockedClients = auditservices.LegacyBlockedClients(s.Config.ClientDB, target.AllowedClients)
+		}
+		if err := s.audit.UpsertSSHTarget(target); err != nil {
+			return fmt.Errorf("import ssh target %s: %w", target.ID, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) Run() error {

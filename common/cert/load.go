@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// CertLoad 从指定路径加载证书文件，并解析为Certificate结构体。
 func CertLoad(path string) (*Certificate, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

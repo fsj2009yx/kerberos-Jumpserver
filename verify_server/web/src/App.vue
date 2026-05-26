@@ -5,6 +5,7 @@ import {
   Connection,
   DataAnalysis,
   DocumentChecked,
+  FolderOpened,
   Key,
   Monitor,
   Operation,
@@ -23,6 +24,7 @@ const navItems = [
   { path: '/auth', label: '认证日志', icon: DocumentChecked },
   { path: '/audit-session', label: '会话审计', icon: DataAnalysis },
   { path: '/replay', label: '输出回放', icon: VideoPlay },
+  { path: '/targets', label: 'SSH 节点', icon: FolderOpened },
   { path: '/certificates', label: '证书', icon: Key },
 ]
 

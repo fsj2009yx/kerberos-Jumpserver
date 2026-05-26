@@ -232,10 +232,14 @@ func desCBCDecrypt(key [8]byte, cipherBytes []byte) ([]byte, error) {
 	if len(cipherBytes) < 8 || len(cipherBytes)%8 != 0 {
 		return nil, errors.New("invalid des cipher length")
 	}
+	//取出 IV
 	iv := cipherBytes[:8]
+	//解密每个块
 	ctx := newDESCtx(key)
 	prev := binary.BigEndian.Uint64(iv)
 	plain := make([]byte, len(cipherBytes)-8)
+
+	//从第 8 字节开始，每 8 字节为一个块进行解密
 	for i := 8; i < len(cipherBytes); i += 8 {
 		block := binary.BigEndian.Uint64(cipherBytes[i : i+8])
 		dec := desDecryptBlock(block, ctx.subKeys)
@@ -243,5 +247,7 @@ func desCBCDecrypt(key [8]byte, cipherBytes []byte) ([]byte, error) {
 		binary.BigEndian.PutUint64(plain[i-8:i], dec)
 		prev = block
 	}
+
+	//去除填充
 	return pkcs7Unpad(plain, 8)
 }
