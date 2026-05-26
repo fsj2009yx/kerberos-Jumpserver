@@ -20,3 +20,4 @@ __pycache__/
 /build/tgs_server
 ticket.bin
 v_audit.db
+init_all_certs
