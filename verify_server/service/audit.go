@@ -320,7 +320,7 @@ func auditSessionID(clientID string, ptySessionID uint32) string {
 func auditPTYOpName(op uint8) string {
 	switch op {
 	case 0x01:
-		return "open"
+		return "unsupported_open"
 	case 0x02:
 		return "input"
 	case 0x03:

@@ -98,7 +98,7 @@ func NewService(configPath string) *Service {
 		s.clientCerts[item.ID] = cert
 		log.Infof("[V] client cert loaded and verified client=%s path=%s", item.ID, item.CertPath)
 	}
-	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d ssh_targets=%d pty_shell=%s", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), len(cfg.SSHTargets), cfg.PTYShell)
+	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d ssh_targets=%d", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), len(cfg.SSHTargets))
 	return s
 }
 

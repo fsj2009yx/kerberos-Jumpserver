@@ -14,7 +14,6 @@
   "security_log_file": "./logs/security.log",
   "audit_db_file": "./logs/v_audit.db",
   "k_v_hex": "4b564b4559313233",
-  "pty_shell": "/bin/sh",
   "pty_default_term": "xterm-256color",
   "cli_whitelist": [],
   "ssh_targets": [
@@ -34,6 +33,15 @@
       "ssh_user": "fsj2009yx",
       "auth_type": "password",
       "password": "20040928",
+      "allowed_clients": ["CLIENT_1"]
+    },
+    {
+      "id": "leveno",
+      "host": "172.27.98.203",
+      "port": 22,
+      "ssh_user": "lenovo",
+      "auth_type": "password",
+      "password": "082367",
       "allowed_clients": ["CLIENT_1"]
     }
   ],

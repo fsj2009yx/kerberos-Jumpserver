@@ -51,7 +51,6 @@ type Config struct {
 	AuditLogFile     string            `json:"audit_log_file,omitempty"` // legacy alias
 	KVPath           string            `json:"k_v_path,omitempty"`
 	KVHex            string            `json:"k_v_hex,omitempty"`
-	PTYShell         string            `json:"pty_shell"`
 	PTYDefaultTerm   string            `json:"pty_default_term"`
 	CLIWhitelist     []string          `json:"cli_whitelist"`
 	ClientDB         []ClientCertEntry `json:"client_db"`
@@ -95,7 +94,6 @@ func (c *Config) validate() error {
 	}
 	requiredString("log_level", c.LogLevel)
 	requiredString("privkey_path", c.PrivKeyPath)
-	requiredString("pty_shell", c.PTYShell)
 	requiredString("pty_default_term", c.PTYDefaultTerm)
 	if c.ListenPort <= 0 {
 		return errors.New("listen_port must be greater than 0")

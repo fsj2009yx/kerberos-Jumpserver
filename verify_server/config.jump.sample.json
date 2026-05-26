@@ -14,7 +14,6 @@
   "security_log_file": "./logs/security.log",
   "audit_db_file": "./logs/v_audit.db",
   "k_v_hex": "4b564b4559313233",
-  "pty_shell": "/bin/sh",
   "pty_default_term": "xterm-256color",
   "cli_whitelist": [],
   "ssh_targets": [
