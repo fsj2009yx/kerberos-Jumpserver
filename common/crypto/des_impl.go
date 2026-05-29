@@ -157,6 +157,8 @@ func leftRotate28(v uint32, shift uint8) uint32 {
 	return ((v << s) | (v >> (28 - s))) & 0x0fffffff
 }
 
+// 初始置换，具体操作为：
+// 根据desIP表中的位置，将输入的64位数据重新排列，得到一个新的64位数据
 func permuteBits(in uint64, inputBits int, table []uint8) uint64 {
 	var out uint64
 	for _, pos := range table {
@@ -167,12 +169,20 @@ func permuteBits(in uint64, inputBits int, table []uint8) uint64 {
 }
 
 func desEncryptBlock(block uint64, subKeys [16]uint64) uint64 {
+
+	//初始置换
 	permuted := permuteBits(block, 64, desIP[:])
+
+	//取左32位和右32位
 	l := uint32(permuted >> 32)
 	r := uint32(permuted)
+
+	//做16轮轮函数运算
 	for i := 0; i < 16; i++ {
 		l, r = r, l^desRound(r, subKeys[i])
 	}
+
+	//第16轮结束后，做左右交换
 	preOutput := (uint64(r) << 32) | uint64(l)
 	return permuteBits(preOutput, 64, desFP[:])
 }
@@ -191,7 +201,10 @@ func desDecryptBlock(block uint64, subKeys [16]uint64) uint64 {
 	return permuteBits(preOutput, 64, desFP[:])
 }
 
+// DES轮函数
 func desRound(r uint32, subKey uint64) uint32 {
+
+	//做E扩展，将32位的r扩展为48位
 	expanded := permuteBits(uint64(r), 32, desE[:])
 	x := expanded ^ subKey
 	var out uint32
