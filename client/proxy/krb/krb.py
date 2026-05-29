@@ -543,7 +543,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         log_info("AS_REQ sent and AS_REP received")
         
         # 解密响应（password作为Kc）
-        kc = password.encode().ljust(8)[:8]  # 确保8字节
+        kc = password.encode().ljust(8)[:8]  # 确保8字节客户端自己的主密钥（用户密钥）
         log_debug(f"Kc (from password): {kc.hex()}")
         
         # 记录解密前的密文
@@ -631,7 +631,7 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
             timestamp=ts3,
             addition=0
         )
-        tgs_req_packet = tgs_req_header.to_bytes() + payload
+        tgs_req_packet = tgs_req_header.to_bytes() + payload#组成完整的能发给服务器的数据包
 
         # 使用统一解密函数解密TGS_REQ (Ticket_TGS需要K_tgs可能无法解密，Authenticator_c用Key_c_tgs解密)
         decoded_lines = decrypt_payload(0x03, payload, rt.bundle.key_c_tgs)
@@ -658,8 +658,8 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
                        "TGS_REP decrypted - Key_c_v, Ticket_V", full_packet, decoded_lines)
 
         # 更新运行时状态
-        rt.bundle.key_c_v = tgs_rep.key_c_v
-        rt.bundle.ticket_v = tgs_rep.ticket_v
+        rt.bundle.key_c_v = tgs_rep.key_c_v#密钥
+        rt.bundle.ticket_v = tgs_rep.ticket_v#票据
         rt.bundle.tv_expire = tgs_rep.ts4 + tgs_rep.lifetime
         
         # 记录解密后的信息
