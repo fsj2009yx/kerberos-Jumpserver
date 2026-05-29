@@ -36,10 +36,6 @@ SMALL_PRIMES = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# 数论辅助函数
-# ---------------------------------------------------------------------------
-
 def _hex_int(value: int, width: int = 0) -> str:
     """将整数转换为十六进制字符串，可选左补零到指定宽度。"""
     return format(value, "x").zfill(width)
@@ -74,10 +70,6 @@ def _mod_inverse(a: int, m: int) -> int:
         return -1                    # 无逆元
     return x % m                     # 确保结果为正
 
-
-# ---------------------------------------------------------------------------
-# 素数生成（Miller‑Rabin + 试除）
-# ---------------------------------------------------------------------------
 
 def _generate_random_big_int(bits: int) -> int:
     """生成恰好 `bits` 位的随机大整数，且保证最低位为 1（奇数）。"""
@@ -161,10 +153,6 @@ def _generate_prime_by_search(bits: int) -> int:
     return p
 
 
-# ---------------------------------------------------------------------------
-# RSA 密钥对生成
-# ---------------------------------------------------------------------------
-
 def _generate_rsa_keypair() -> tuple[dict, dict, dict]:
     """
     生成 RSA‑2048 密钥对。
@@ -203,10 +191,6 @@ def _generate_rsa_keypair() -> tuple[dict, dict, dict]:
         int_priv = {"n": n, "e": e_val, "d": d}
         return private_doc, public_doc, int_priv
 
-
-# ---------------------------------------------------------------------------
-# PKCS#1 v1.5 签名（EMSA 编码 + 模幂）
-# ---------------------------------------------------------------------------
 
 def _emsa_pkcs1v15_encode(hash_bytes: bytes, size: int) -> bytes:
     """
@@ -249,10 +233,6 @@ def _rsa_sign_sha256_pkcs1v15(message: bytes, priv_key: dict) -> bytes:
     return s.to_bytes(RSA_BITS // 8, "big")                     # 转为 256 字节大端
 
 
-# ---------------------------------------------------------------------------
-# 证书创建
-# ---------------------------------------------------------------------------
-
 def _body_bytes(body: dict) -> bytes:
     """将证书主体（不含 sign 字段）规范化为字节串，用于签名和验签。"""
     # separators=(",",":") 去除不必要的空格，确保签名可重现
@@ -289,10 +269,6 @@ def _generate_identity(entity_id: str, issuer: str, expire: str) -> tuple[dict, 
     cert = _create_certificate(entity_id, issuer, expire, public_doc, priv_key)
     return private_doc, public_doc, cert
 
-
-# ---------------------------------------------------------------------------
-# CLI 辅助函数（路径解析、参数验证等）
-# ---------------------------------------------------------------------------
 
 def _repo_root() -> Path:
     """返回项目的根目录（当前脚本的父目录的父目录）。"""
@@ -336,10 +312,6 @@ def _copy_file(src: Path, dst: Path, mode: int) -> None:
     shutil.copyfile(src, dst)
     dst.chmod(mode)
 
-
-# ---------------------------------------------------------------------------
-# 输出写入（按设计文档目录结构）
-# ---------------------------------------------------------------------------
 
 def _write_v_identity(root: Path, issuer: str, expire: str, write_public: bool) -> None:
     """生成并保存 V 服务器的私钥、证书，可选保存公钥。"""
@@ -401,11 +373,6 @@ def _write_active_alias(root: Path, active_client: int,
     _copy_file(cert_path, active_cert, 0o644)
     print(f"CLIENT_{active_client:<7} alias:   {active_private}")
     print(f"CLIENT_{active_client:<7} alias:   {active_cert}")
-
-
-# ---------------------------------------------------------------------------
-# 主入口
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(
