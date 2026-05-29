@@ -38,6 +38,17 @@ function withLimit(path, limit) {
   return `${path}?limit=${encodeURIComponent(nextLimit)}`
 }
 
+function withQuery(path, params = {}) {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      query.set(key, String(value).trim())
+    }
+  }
+  const suffix = query.toString()
+  return suffix ? `${path}?${suffix}` : path
+}
+
 export function fetchStatus() {
   return requestJSON('/api/status')
 }
@@ -50,16 +61,16 @@ export function fetchAuthLog(limit = 100) {
   return requestJSON(withLimit('/api/auth_log', limit))
 }
 
-export function fetchPtyLog(limit = 100) {
-  return requestJSON(withLimit('/api/pty_log', limit))
+export function fetchPtyLog(limit = 100, filters = {}) {
+  return requestJSON(withQuery('/api/pty_log', { limit, ...filters }))
 }
 
-export function fetchAuditSession(id, limit = 200) {
-  return requestJSON(withLimit(`/api/audit/session/${encodeURIComponent(id)}`, limit))
+export function fetchAuditFrames(clientId, targetId, limit = 300) {
+  return requestJSON(withQuery('/api/audit/frames', { client_id: clientId, target_id: targetId, limit }))
 }
 
-export function fetchReplay(id, limit = 300) {
-  return requestJSON(withLimit(`/api/audit/replay/${encodeURIComponent(id)}`, limit))
+export function fetchReplay(clientId, targetId, limit = 300) {
+  return requestJSON(withQuery('/api/audit/replay', { client_id: clientId, target_id: targetId, limit }))
 }
 
 export function fetchCertificate(id) {

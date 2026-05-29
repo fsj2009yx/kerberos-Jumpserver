@@ -19,10 +19,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "APP_REQ",
-			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
-			ClientIP:     current.ClientIP,
-			ADc:          current.ADc,
+			ClientAddr:   current.ClientAddr,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
 			SeqNum:       h.SeqNum,
@@ -40,10 +38,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "APP_REQ",
-			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
-			ClientIP:     current.ClientIP,
-			ADc:          current.ADc,
+			ClientAddr:   current.ClientAddr,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
 			SeqNum:       h.SeqNum,
@@ -61,10 +57,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "APP_REQ",
-			SessionID:    auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:     current.IDClient,
-			ClientIP:     current.ClientIP,
-			ADc:          current.ADc,
+			ClientAddr:   current.ClientAddr,
 			PTYSessionID: current.PtySessionID,
 			Direction:    "C->V",
 			SeqNum:       h.SeqNum,
@@ -75,7 +69,7 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketExpired), err
 	}
 
-	// 如果当前会话关联了客户端证书，则使用证书中的RSA公钥验证请求中的签名，确保请求的真实性和完整性，防止请求被篡改或伪造
+	// 查找会话关联的客户端证书，则使用证书中的RSA公钥验证请求中的签名，确保请求的真实性和完整性，防止请求被篡改或伪造
 	cert := s.clientCerts[current.IDClient]
 	if cert == nil {
 		err := krb.ErrorFromCode(krb.ErrCertLoadFail)
@@ -83,10 +77,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:            "pty",
 			EventType:       "APP_REQ",
-			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
-			ClientIP:        current.ClientIP,
-			ADc:             current.ADc,
+			ClientAddr:      current.ClientAddr,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
 			SeqNum:          h.SeqNum,
@@ -97,21 +89,22 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		})
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrCertLoadFail), err
 	}
+
 	pub, err := cert.PublicKeyRSA()
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrCertSigInvalid)
 		log.Warnf("[V] cert public key parse failed client=%s err=%v", current.IDClient, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrCertSigInvalid), err
 	}
+
+	// 使用证书中的RSA公钥验证请求中的签名，确保请求的真实性和完整性，防止请求被篡改或伪造
 	if err := krb.VerifyCipherSignature(h.SeqNum, req.Cipher, req.RSASignC, pub); err != nil {
 		log.Warnf("[V] APP signature verify failed client=%s seq=%d err=%v", current.IDClient, h.SeqNum, err)
 		s.appendAudit(AuditRecord{
 			Kind:            "pty",
 			EventType:       "APP_REQ",
-			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
-			ClientIP:        current.ClientIP,
-			ADc:             current.ADc,
+			ClientAddr:      current.ClientAddr,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
 			SeqNum:          h.SeqNum,
@@ -129,10 +122,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		s.appendAudit(AuditRecord{
 			Kind:            "pty",
 			EventType:       "APP_REQ",
-			SessionID:       auditSessionID(current.IDClient, current.PtySessionID),
 			ClientID:        current.IDClient,
-			ClientIP:        current.ClientIP,
-			ADc:             current.ADc,
+			ClientAddr:      current.ClientAddr,
 			PTYSessionID:    current.PtySessionID,
 			Direction:       "C->V",
 			SeqNum:          h.SeqNum,
@@ -170,10 +161,8 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 	s.appendAudit(AuditRecord{
 		Kind:            "pty",
 		EventType:       "APP_REQ",
-		SessionID:       auditSessionID(current.IDClient, plain.PtySessionID),
 		ClientID:        current.IDClient,
-		ClientIP:        current.ClientIP,
-		ADc:             current.ADc,
+		ClientAddr:      current.ClientAddr,
 		TargetID:        auditTargetID,
 		TargetHost:      auditTargetHost,
 		SSHUser:         auditSSHUser,
@@ -189,128 +178,14 @@ func (s *Service) handleAPPReq(h krb.ProtocolHeader, payload []byte, current *Se
 		RSAVerifyResult: "ok",
 	})
 
-	switch plain.PtyOp {
-	case pty.OpOpenSSH:
-		targetID, term, cols, rows, err := pty.ParseOpenSSHPayload(plain.Payload)
-		if err != nil {
-			log.Warnf("[V] ssh open payload parse failed client=%s err=%v", current.IDClient, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("bad ssh open payload")), err
-		}
-		if term == "" {
-			term = s.Config.PTYDefaultTerm
-		}
-		target, err := s.lookupSSHTarget(targetID)
-		if err != nil {
-			log.Warnf("[V] ssh target lookup failed client=%s target=%s err=%v", current.IDClient, targetID, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("ssh target not found")), err
-		}
-		if err := checkTargetPermission(current.IDClient, target); err != nil {
-			log.Warnf("[V] ssh target permission denied client=%s target=%s err=%v", current.IDClient, targetID, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("ssh target denied")), err
-		}
-		if current.PTY != nil {
-			s.cleanupPTY(current, "replace ssh pty")
-		}
-		sshSession, startErr := pty.StartSSHSession(target, term, cols, rows)
-		if startErr != nil || sshSession == nil {
-			if startErr == nil {
-				startErr = krb.ErrorFromCode(krb.ErrSessionNotFound)
-			}
-			log.Errorf("[V] ssh pty start failed client=%s target=%s host=%s:%d user=%s term=%s cols=%d rows=%d err=%v", current.IDClient, target.ID, target.Host, target.Port, target.SSHUser, term, cols, rows, startErr)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("ssh pty start failed")), startErr
-		}
-		s.resetPTYContext(current)
-		current.PTY = sshSession
-		current.PtySessionID = s.nextSessionID()
-		current.TargetID = target.ID
-		current.TargetHost = fmt.Sprintf("%s:%d", target.Host, target.Port)
-		current.SSHUser = target.SSHUser
-		current.Closed.Store(false)
-		if current.Cancel != nil {
-			go func(sess *SessionContext) {
-				<-sess.Ctx.Done()
-				if sess.PTY != nil {
-					_ = sess.PTY.Close()
-				}
-			}(current)
-		}
-		go pty.StreamOutput(current.PTY, pty.StreamCallbacks{
-			ClientID:   current.IDClient,
-			SessionID:  current.PtySessionID,
-			Done:       current.Ctx.Done(),
-			NextSeq:    nextSeq,
-			SendPacket: sendPacket,
-			BuildPayload: func(seq uint32, event uint8, sessionID uint32, exitCode int32, payload []byte) []byte {
-				return s.buildAPPRep(current, seq, event, sessionID, exitCode, payload)
-			},
-			OnFrame: func() {
-				atomic.AddUint64(&current.TotalFrames, 1)
-				atomic.AddUint64(&s.ptyFrames, 1)
-			},
-			OnIO: func(at time.Time) {
-				current.LastIO = at
-			},
-			IsClosed: func() bool {
-				return current.Closed.Load()
-			},
-		})
-		out := []byte(fmt.Sprintf("ssh open ok: %s -> %s", current.IDClient, current.TargetID))
-		log.Infof("[V] ssh pty opened client=%s target=%s host=%s user=%s pty_session_id=%d term=%s cols=%d rows=%d", current.IDClient, current.TargetID, current.TargetHost, current.SSHUser, current.PtySessionID, term, cols, rows)
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventOpenOK, current.PtySessionID, -1, out), nil
-	case pty.OpInput:
-		if current.PTY == nil {
-			log.Warnf("[V] pty input rejected not open client=%s", current.IDClient)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
-		}
-		if _, err := current.PTY.Write(plain.Payload); err != nil {
-			log.Warnf("[V] pty input write failed client=%s payload_bytes=%d err=%v", current.IDClient, len(plain.Payload), err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("pty write failed")), krb.ErrorFromCode(krb.ErrSocketSend)
-		}
-		out := []byte{}
-		log.Infof("[V] pty input accepted client=%s pty_session_id=%d payload_bytes=%d", current.IDClient, current.PtySessionID, len(plain.Payload))
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventOutput, current.PtySessionID, -1, out), nil
-	case pty.OpResize:
-		if current.PTY == nil {
-			log.Warnf("[V] pty resize rejected not open client=%s", current.IDClient)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
-		}
-		cols, rows, err := pty.ParseResizePayload(plain.Payload)
-		if err != nil {
-			log.Warnf("[V] pty resize payload parse failed client=%s err=%v", current.IDClient, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("bad resize payload")), err
-		}
-		if err := current.PTY.Resize(cols, rows); err != nil {
-			log.Warnf("[V] pty resize failed client=%s cols=%d rows=%d err=%v", current.IDClient, cols, rows, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("resize failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
-		}
-		log.Infof("[V] pty resized client=%s pty_session_id=%d cols=%d rows=%d", current.IDClient, current.PtySessionID, cols, rows)
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventOutput, current.PtySessionID, -1, []byte("")), nil
-	case pty.OpSignal:
-		if current.PTY == nil {
-			log.Warnf("[V] pty signal rejected not open client=%s", current.IDClient)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("pty not open")), krb.ErrorFromCode(krb.ErrSessionNotFound)
-		}
-		sig, err := pty.ParseSignalPayload(plain.Payload)
-		if err != nil {
-			log.Warnf("[V] pty signal payload parse failed client=%s err=%v", current.IDClient, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("bad signal payload")), err
-		}
-		if err := current.PTY.Signal(sig); err != nil {
-			log.Warnf("[V] pty signal failed client=%s signal=%d err=%v", current.IDClient, sig, err)
-			return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("signal failed")), krb.ErrorFromCode(krb.ErrSessionNotFound)
-		}
-		log.Infof("[V] pty signal sent client=%s pty_session_id=%d signal=%d", current.IDClient, current.PtySessionID, sig)
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventOutput, current.PtySessionID, -1, []byte("signal ok")), nil
-	case pty.OpClose:
-		ptySessionID := current.PtySessionID
-		resp := s.buildAPPRep(current, respSeq, pty.EventExit, ptySessionID, 0, []byte("bye"))
-		s.cleanupPTY(current, "pty close")
-		log.Infof("[V] pty session closed client=%s pty_session_id=%d total_frames=%d", current.IDClient, ptySessionID, atomic.LoadUint64(&current.TotalFrames))
-		return krb.MsgApp, resp, nil
-	default:
-		log.Warnf("[V] invalid pty operation client=%s op=%d", current.IDClient, plain.PtyOp)
-		return krb.MsgApp, s.buildAPPRep(current, respSeq, pty.EventError, current.PtySessionID, -1, []byte("invalid pty op")), krb.ErrorFromCode(krb.ErrMsgTypeInvalid)
+	ctx := appOperationContext{
+		plain:      plain,
+		current:    current,
+		sendPacket: sendPacket,
+		respSeq:    respSeq,
+		nextSeq:    nextSeq,
 	}
+	return s.dispatchAPPOperation(ctx)
 }
 
 // handleAppPacket 处理来自客户端的APP消息，首先检查会话是否已经认证和存在，如果未认证或会话不存在，则拒绝处理并返回错误；
@@ -340,13 +215,14 @@ func (s *Service) handleAppPacket(c *ConnState, h krb.ProtocolHeader, payload []
 			_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrSessionNotFound))
 			return false
 		}
+		// 验证会话是否过期，如果当前时间超过了会话的ExpireAt时间戳，则认为会话已经过期
 		if uint32(time.Now().Unix()) > sess.ExpireAt {
 			log.Warnf("[V] APP rejected expired Kerberos session remote=%s client=%s expire_at=%d seq=%d", c.remote, clientID, sess.ExpireAt, h.SeqNum)
 			s.cleanupSession(sess, "expired app bind")
 			_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.ErrTicketExpired))
 			return false
 		}
-		sess.ClientIP = c.remote
+		sess.ClientAddr = c.remote
 		c.current = sess
 		c.authed = true
 		c.appBound = true
@@ -399,10 +275,8 @@ func (s *Service) buildAPPRep(current *SessionContext, seq uint32, event uint8, 
 	s.appendAudit(AuditRecord{
 		Kind:         "pty",
 		EventType:    "APP_REP",
-		SessionID:    auditSessionID(current.IDClient, ptySessionID),
 		ClientID:     current.IDClient,
-		ClientIP:     current.ClientIP,
-		ADc:          current.ADc,
+		ClientAddr:   current.ClientAddr,
 		TargetID:     current.TargetID,
 		TargetHost:   current.TargetHost,
 		SSHUser:      current.SSHUser,

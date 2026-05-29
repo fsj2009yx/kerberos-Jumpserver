@@ -1,5 +1,7 @@
-   """DES-CBC的加密实现"""
-
+"""
+DES-CBC的加密实现
+"""
+#1231313131313
 # 导入调试模块
 try:
     from debug.debug import log_debug, log_encryption, log_decryption, hexdump

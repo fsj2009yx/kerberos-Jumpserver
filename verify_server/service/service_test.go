@@ -108,7 +108,7 @@ func TestCleanupPTYClosesConnectionKeepsKerberosSessionAndAudits(t *testing.T) {
 	ptyHandle := &closeCountingPTY{}
 	sess := &SessionContext{
 		IDClient:     "CLIENT_1",
-		ClientIP:     "127.0.0.1:12345",
+		ClientAddr:   "127.0.0.1:12345",
 		ADc:          1,
 		TargetID:     "prod-1",
 		TargetHost:   "10.0.0.11:22",

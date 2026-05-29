@@ -80,22 +80,3 @@ export function tagTypeForDirection(direction) {
 export function frameTitle(record) {
   return record.frame_type || record.event_type || record.kind || 'frame'
 }
-
-export function formatADc(value) {
-  const number = Number(value)
-  if (!Number.isFinite(number) || number <= 0) {
-    return '-'
-  }
-  const unsigned = number >>> 0
-  const dotted = [
-    (unsigned >>> 24) & 255,
-    (unsigned >>> 16) & 255,
-    (unsigned >>> 8) & 255,
-    unsigned & 255,
-  ].join('.')
-  return `${dotted} (${unsigned})`
-}
-
-export function sessionKey(record) {
-  return record.session_id || (record.pty_session_id ? String(record.pty_session_id) : record.client_id || '')
-}

@@ -39,11 +39,11 @@ func (s *Store) Append(rec model.Record) error {
 	rec.RecordHash = recordHash(rec)
 
 	_, err := s.db.Exec(`INSERT INTO audit_records (
-		id, ts, time, kind, event_type, session_id, client_id, client_ip, ad_c, target_id, target_host, ssh_user, pty_session_id,
+		id, ts, time, kind, event_type, client_id, client_addr, target_id, target_host, ssh_user, pty_session_id,
 		direction, seq_num, msg_type, pty_op, pty_event, frame_type, frame_size, payload_b64,
 		exit_code, result, error_code, rsa_verify_result, prev_hash, record_hash
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.ID, rec.TS, rec.Time, rec.Kind, rec.EventType, rec.SessionID, rec.ClientID, rec.ClientIP, rec.ADc, rec.TargetID, rec.TargetHost, rec.SSHUser, rec.PTYSessionID,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.ID, rec.TS, rec.Time, rec.Kind, rec.EventType, rec.ClientID, rec.ClientAddr, rec.TargetID, rec.TargetHost, rec.SSHUser, rec.PTYSessionID,
 		rec.Direction, rec.SeqNum, rec.MsgType, rec.PTYOp, rec.PTYEvent, rec.FrameType, rec.FrameSize, rec.PayloadB64,
 		rec.ExitCode, rec.Result, rec.ErrorCode, rec.RSAVerifyResult, rec.PrevHash, rec.RecordHash)
 	if err != nil {
@@ -65,7 +65,7 @@ func (s *Store) Records(limit int, filter func(model.Record) bool) ([]model.Reco
 	defer s.mu.Unlock()
 
 	rows, err := s.db.Query(`SELECT
-		id, ts, time, kind, event_type, session_id, client_id, client_ip, ad_c, target_id, target_host, ssh_user, pty_session_id,
+		id, ts, time, kind, event_type, client_id, client_addr, target_id, target_host, ssh_user, pty_session_id,
 		direction, seq_num, msg_type, pty_op, pty_event, frame_type, frame_size, payload_b64,
 		exit_code, result, error_code, rsa_verify_result, prev_hash, record_hash
 		FROM audit_records
@@ -100,20 +100,18 @@ type scanner interface {
 
 func scanRecord(row scanner) (model.Record, error) {
 	var rec model.Record
-	var sessionID, clientID, clientIP, targetID, targetHost, sshUser, direction, frameType, payloadB64, errorCode, rsaVerifyResult, prevHash sql.NullString
-	var adC, ptySessionID, seqNum, msgType, ptyOp, ptyEvent, frameSize, exitCode sql.NullInt64
+	var clientID, clientAddr, targetID, targetHost, sshUser, direction, frameType, payloadB64, errorCode, rsaVerifyResult, prevHash sql.NullString
+	var ptySessionID, seqNum, msgType, ptyOp, ptyEvent, frameSize, exitCode sql.NullInt64
 	err := row.Scan(
-		&rec.ID, &rec.TS, &rec.Time, &rec.Kind, &rec.EventType, &sessionID, &clientID, &clientIP, &adC, &targetID, &targetHost, &sshUser, &ptySessionID,
+		&rec.ID, &rec.TS, &rec.Time, &rec.Kind, &rec.EventType, &clientID, &clientAddr, &targetID, &targetHost, &sshUser, &ptySessionID,
 		&direction, &seqNum, &msgType, &ptyOp, &ptyEvent, &frameType, &frameSize, &payloadB64,
 		&exitCode, &rec.Result, &errorCode, &rsaVerifyResult, &prevHash, &rec.RecordHash,
 	)
 	if err != nil {
 		return rec, err
 	}
-	rec.SessionID = nullString(sessionID)
 	rec.ClientID = nullString(clientID)
-	rec.ClientIP = nullString(clientIP)
-	rec.ADc = uint32(nullInt(adC))
+	rec.ClientAddr = nullString(clientAddr)
 	rec.TargetID = nullString(targetID)
 	rec.TargetHost = nullString(targetHost)
 	rec.SSHUser = nullString(sshUser)

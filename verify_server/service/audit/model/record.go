@@ -6,10 +6,8 @@ type Record struct {
 	Time            string `json:"time"`
 	Kind            string `json:"kind"`
 	EventType       string `json:"event_type"`
-	SessionID       string `json:"session_id"`
 	ClientID        string `json:"client_id,omitempty"`
-	ClientIP        string `json:"client_ip,omitempty"`
-	ADc             uint32 `json:"ad_c,omitempty"`
+	ClientAddr      string `json:"client_addr,omitempty"`
 	TargetID        string `json:"target_id,omitempty"`
 	TargetHost      string `json:"target_host,omitempty"`
 	SSHUser         string `json:"ssh_user,omitempty"`

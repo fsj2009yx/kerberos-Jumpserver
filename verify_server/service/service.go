@@ -77,6 +77,8 @@ func NewService(configPath string) *Service {
 		clientCerts: make(map[string]*certutil.Certificate),
 		audit:       auditservices.NewManager(auditStore, cfg.NodeID, kv),
 	}
+
+	// 如果配置文件中定义了SSH目标服务器的信息，则将这些信息导入到服务端的审计管理器中（已弃用）
 	if err := s.importConfigSSHTargets(); err != nil {
 		log.Errorf("[V] import ssh targets failed err=%v", err)
 		panic(fmt.Sprintf("import ssh targets: %v", err))
@@ -250,10 +252,8 @@ func (s *Service) cleanupPTY(sess *SessionContext, reason string) {
 		s.appendAudit(AuditRecord{
 			Kind:         "pty",
 			EventType:    "PTY_CLEANUP",
-			SessionID:    auditSessionID(sess.IDClient, ptySessionID),
 			ClientID:     sess.IDClient,
-			ClientIP:     sess.ClientIP,
-			ADc:          sess.ADc,
+			ClientAddr:   sess.ClientAddr,
 			TargetID:     targetID,
 			TargetHost:   targetHost,
 			SSHUser:      sshUser,

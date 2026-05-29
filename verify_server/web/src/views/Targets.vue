@@ -1,7 +1,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Close, Hide, Lock, Plus, Refresh, View } from '@element-plus/icons-vue'
+import { Edit, Hide, Lock, Plus, Refresh, View } from '@element-plus/icons-vue'
 import {
   fetchTargetPassword,
   fetchTargets,
@@ -14,7 +14,10 @@ const saving = ref(false)
 const targets = ref([])
 const passwordVisible = reactive({})
 const passwordValues = reactive({})
-const blockEditors = reactive({})
+const targetDialogOpen = ref(false)
+const blockDialogOpen = ref(false)
+const editingTargetId = ref('')
+const clientDelimiter = /[\s,，]+/
 const form = reactive({
   id: '',
   host: '',
@@ -24,16 +27,27 @@ const form = reactive({
   password: '',
   key_path: '',
   known_hosts_path: '',
-  blocked_clients_text: '',
+  blocked_clients: [],
+})
+const blockForm = reactive({
+  id: '',
+  blocked_clients: [],
 })
 
 const targetCount = computed(() => targets.value.length)
+const dialogTitle = computed(() => (editingTargetId.value ? `修改节点 ${editingTargetId.value}` : '注册节点'))
 
-function parseClientText(value) {
-  return String(value || '')
-    .split(/[\s,，]+/)
+function normalizeClients(value) {
+  const items = Array.isArray(value) ? value : String(value || '').split(clientDelimiter)
+  const seen = new Set()
+  return items
     .map((item) => item.trim())
     .filter(Boolean)
+    .filter((item) => {
+      if (seen.has(item)) return false
+      seen.add(item)
+      return true
+    })
 }
 
 function resetForm() {
@@ -46,8 +60,36 @@ function resetForm() {
     password: '',
     key_path: '',
     known_hosts_path: '',
-    blocked_clients_text: '',
+    blocked_clients: [],
   })
+}
+
+function openCreateDialog() {
+  editingTargetId.value = ''
+  resetForm()
+  targetDialogOpen.value = true
+}
+
+function openEditDialog(target) {
+  editingTargetId.value = target.id
+  Object.assign(form, {
+    id: target.id || '',
+    host: target.host || '',
+    port: Number(target.port) || 22,
+    ssh_user: target.ssh_user || '',
+    auth_type: target.auth_type || 'password',
+    password: '',
+    key_path: target.key_path || '',
+    known_hosts_path: target.known_hosts_path || '',
+    blocked_clients: normalizeClients(target.blocked_clients || []),
+  })
+  targetDialogOpen.value = true
+}
+
+function closeTargetDialog() {
+  targetDialogOpen.value = false
+  editingTargetId.value = ''
+  resetForm()
 }
 
 async function load() {
@@ -78,10 +120,10 @@ async function submit() {
       password: form.password,
       key_path: form.key_path.trim(),
       known_hosts_path: form.known_hosts_path.trim(),
-      blocked_clients: parseClientText(form.blocked_clients_text),
+      blocked_clients: normalizeClients(form.blocked_clients),
     })
     ElMessage.success('SSH 节点已保存')
-    resetForm()
+    closeTargetDialog()
     await load()
   } catch (error) {
     ElMessage.error(error.message || String(error))
@@ -90,7 +132,7 @@ async function submit() {
   }
 }
 
-async function togglePassword(target) {
+const togglePassword=async (target) => {
   if (passwordVisible[target.id]) {
     passwordVisible[target.id] = false
     return
@@ -109,24 +151,24 @@ async function togglePassword(target) {
 }
 
 function openBlockEditor(target) {
-  blockEditors[target.id] = {
-    open: true,
-    text: (target.blocked_clients || []).join('\n'),
-  }
+  blockForm.id = target.id
+  blockForm.blocked_clients = normalizeClients(target.blocked_clients || [])
+  blockDialogOpen.value = true
 }
 
-function closeBlockEditor(target) {
-  blockEditors[target.id] = { open: false, text: '' }
+function closeBlockEditor() {
+  blockDialogOpen.value = false
+  blockForm.id = ''
+  blockForm.blocked_clients = []
 }
 
-async function saveBlocked(target) {
-  const editor = blockEditors[target.id]
-  if (!editor) return
+async function saveBlocked() {
+  if (!blockForm.id) return
   try {
-    const blocked = parseClientText(editor.text)
-    await updateTargetBlockedClients(target.id, blocked)
+    const blocked = normalizeClients(blockForm.blocked_clients)
+    await updateTargetBlockedClients(blockForm.id, blocked)
     ElMessage.success('封禁列表已更新')
-    closeBlockEditor(target)
+    closeBlockEditor()
     await load()
   } catch (error) {
     ElMessage.error(error.message || String(error))
@@ -145,17 +187,24 @@ load()
       </div>
       <div class="toolbar-actions">
         <el-tag type="info">{{ targetCount }} nodes</el-tag>
+        <el-button :icon="Plus" type="primary" @click="openCreateDialog">注册节点</el-button>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
       </div>
     </section>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h3>注册节点</h3>
-      </div>
-      <el-form class="target-form" label-position="top">
+    <el-dialog
+      v-model="targetDialogOpen"
+      :title="dialogTitle"
+      append-to-body
+      align-center
+      class="target-dialog"
+      width="min(760px, calc(100vw - 28px))"
+      :close-on-click-modal="false"
+      @closed="closeTargetDialog"
+    >
+      <el-form class="target-form" label-position="top" @submit.prevent>
         <el-form-item label="节点 ID">
-          <el-input v-model="form.id" placeholder="prod-1" />
+          <el-input v-model="form.id" placeholder="prod-1" :disabled="Boolean(editingTargetId)" />
         </el-form-item>
         <el-form-item label="Host">
           <el-input v-model="form.host" placeholder="127.0.0.1" />
@@ -170,7 +219,13 @@ load()
           <el-segmented v-model="form.auth_type" :options="['password', 'private_key']" />
         </el-form-item>
         <el-form-item v-if="form.auth_type === 'password'" label="密码">
-          <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
+          <el-input
+            v-model="form.password"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            :placeholder="editingTargetId ? '留空则保留原密码' : ''"
+          />
         </el-form-item>
         <el-form-item v-else label="私钥路径">
           <el-input v-model="form.key_path" placeholder="./keys/ssh/id_rsa" />
@@ -179,14 +234,51 @@ load()
           <el-input v-model="form.known_hosts_path" placeholder="./keys/ssh/known_hosts" />
         </el-form-item>
         <el-form-item label="封禁 CLIENT">
-          <el-input v-model="form.blocked_clients_text" type="textarea" :rows="2" placeholder="CLIENT_3, CLIENT_4" />
+          <el-input-tag
+            v-model="form.blocked_clients"
+            clearable
+            :delimiter="clientDelimiter"
+            placeholder="CLIENT_3"
+            tag-type="danger"
+          />
         </el-form-item>
-        <div class="target-form-actions">
-          <el-button :icon="Plus" type="primary" :loading="saving" @click="submit">保存节点</el-button>
-          <el-button @click="resetForm">清空</el-button>
-        </div>
       </el-form>
-    </section>
+      <template #footer>
+        <div class="target-dialog-actions">
+          <el-button @click="closeTargetDialog">取消</el-button>
+          <el-button :icon="Plus" type="primary" :loading="saving" @click="submit">保存节点</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="blockDialogOpen"
+      :title="`${blockForm.id} 封禁 CLIENT`"
+      append-to-body
+      align-center
+      class="target-dialog"
+      width="min(560px, calc(100vw - 28px))"
+      :close-on-click-modal="false"
+      @closed="closeBlockEditor"
+    >
+      <el-form label-position="top" @submit.prevent>
+        <el-form-item label="封禁 CLIENT">
+          <el-input-tag
+            v-model="blockForm.blocked_clients"
+            clearable
+            :delimiter="clientDelimiter"
+            placeholder="CLIENT_3"
+            tag-type="danger"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="target-dialog-actions">
+          <el-button @click="closeBlockEditor">取消</el-button>
+          <el-button type="primary" @click="saveBlocked">保存</el-button>
+        </div>
+      </template>
+    </el-dialog>
 
     <section class="target-list">
       <el-skeleton v-if="loading" :rows="8" animated />
@@ -202,7 +294,7 @@ load()
               </div>
               <div class="target-card-actions">
                 <el-button :icon="passwordVisible[target.id] ? Hide : View" circle @click="togglePassword(target)" />
-                <el-button :icon="Lock" circle @click="openBlockEditor(target)" />
+                <el-button :icon="Edit" circle @click="openEditDialog(target)" />
               </div>
             </div>
 
@@ -231,25 +323,6 @@ load()
                 </dd>
               </div>
             </dl>
-          </div>
-
-          <div v-if="blockEditors[target.id]?.open" class="target-mask">
-            <div class="target-mask-panel">
-              <div class="target-mask-head">
-                <strong>{{ target.id }} 封禁 CLIENT</strong>
-                <el-button :icon="Close" circle @click="closeBlockEditor(target)" />
-              </div>
-              <el-input
-                v-model="blockEditors[target.id].text"
-                type="textarea"
-                :rows="6"
-                placeholder="每行一个 CLIENT_ID，或用逗号分隔"
-              />
-              <div class="target-mask-actions">
-                <el-button @click="closeBlockEditor(target)">取消</el-button>
-                <el-button type="primary" @click="saveBlocked(target)">保存</el-button>
-              </div>
-            </div>
           </div>
         </article>
       </template>

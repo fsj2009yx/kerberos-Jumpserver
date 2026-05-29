@@ -1,4 +1,4 @@
- """SHA-256哈希实现"""
+"""SHA-256哈希实现"""
 
 # Initial hash values (H0-H7)
 INITIAL_HASH = [
