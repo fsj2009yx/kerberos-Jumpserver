@@ -523,6 +523,8 @@ class ClientConfig:
     v_cert_path: str = ""
     service_id: str = "verify_server"
     ticket_store_path: str = ""
+    v_webui_addr: Optional[tuple[str, int]] = None
+    target_catalog: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

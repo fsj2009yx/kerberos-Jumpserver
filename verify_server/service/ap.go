@@ -52,10 +52,11 @@ func (s *Service) handleAPReq(connCtx context.Context, h krb.ProtocolHeader, pay
 		ExpireAt:     ticket.TS4 + ticket.Lifetime,
 		PtySessionID: 0,
 		LastIO:       time.Now(),
+		AppReplay:    krb.NewReplayWindow(s.Config.AntiReplayWindow),
 	}
 
 	// 使用AP-REQ消息的上下文作为会话上下文的基础，并将其存储在服务端的会话管理器中，以便后续的消息处理能够关联到正确的客户端会话
-	sess.Ctx, sess.Cancel = context.WithCancel(connCtx)
+	sess.Ctx, sess.Cancel = context.WithCancel(context.Background())
 	s.state.mu.Lock()
 	s.state.Sessions[sess.IDClient] = sess
 	s.state.mu.Unlock()
@@ -89,19 +90,19 @@ func (s *Service) handleAPReqPacket(c *ConnState, h krb.ProtocolHeader, payload 
 		log.Warnf("[V] AP_REQ handling failed remote=%s seq=%d err=%v", c.remote, h.SeqNum, err)
 		code := krb.CodeFromError(err)
 		s.appendAudit(AuditRecord{
-			Kind:      "auth",
-			EventType: "AP_REQ",
-			ClientIP:  c.remote,
-			SeqNum:    h.SeqNum,
-			MsgType:   h.MsgType,
-			Result:    "fail",
-			ErrorCode: krb.CodeName(code),
+			Kind:       "auth",
+			EventType:  "AP_REQ",
+			ClientAddr: c.remote,
+			SeqNum:     h.SeqNum,
+			MsgType:    h.MsgType,
+			Result:     "fail",
+			ErrorCode:  krb.CodeName(code),
 		})
 		_ = c.sendPacket(krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)))
 		return false
 	}
 	c.authed = true
-	sess.ClientIP = c.remote
+	sess.ClientAddr = c.remote
 	c.current = sess
 	if err := c.sendPacket(krb.MsgAPRep, respPayload); err != nil {
 		return false
@@ -110,10 +111,8 @@ func (s *Service) handleAPReqPacket(c *ConnState, h krb.ProtocolHeader, payload 
 	s.appendAudit(AuditRecord{
 		Kind:         "auth",
 		EventType:    "AP_REQ",
-		SessionID:    auditSessionID(sess.IDClient, 0),
 		ClientID:     sess.IDClient,
-		ClientIP:     c.remote,
-		ADc:          sess.ADc,
+		ClientAddr:   c.remote,
 		SeqNum:       h.SeqNum,
 		MsgType:      h.MsgType,
 		Result:       "ok",

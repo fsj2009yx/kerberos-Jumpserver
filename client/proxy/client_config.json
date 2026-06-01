@@ -7,6 +7,8 @@
     "tgs_port": 8882,
     "v_host": "127.0.0.1",
     "v_port": 8883,
+    "v_webui_host": "127.0.0.1",
+    "v_webui_port": 9885,
     "cert_path": "../certs/cert_client.json",
     "privkey_path": "../keys/client_priv.json",
     "v_cert_path": "../../certs/v_cert.json",

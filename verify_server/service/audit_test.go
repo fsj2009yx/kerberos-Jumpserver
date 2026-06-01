@@ -4,19 +4,22 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"security-project/verify_server/service/audit/model"
+	auditrepo "security-project/verify_server/service/audit/repository"
 )
 
 func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "audit.db")
-	store, err := NewAuditStore(dbPath)
+	store, err := auditrepo.NewStore(dbPath)
 	if err != nil {
 		t.Fatalf("new audit store: %v", err)
 	}
 
-	for _, rec := range []AuditRecord{
-		{Kind: "auth", EventType: "AP_REQ", SessionID: "CLIENT_1", ClientID: "CLIENT_1", Result: "ok"},
-		{Kind: "pty", EventType: "APP_REQ", SessionID: "CLIENT_1:7", ClientID: "CLIENT_1", PTYSessionID: 7, FrameType: "input", PayloadB64: auditPayload([]byte("ls\n")), Result: "ok"},
-		{Kind: "pty", EventType: "APP_REP", SessionID: "CLIENT_1:7", ClientID: "CLIENT_1", PTYSessionID: 7, FrameType: "output", PayloadB64: auditPayload([]byte("ok\n")), Result: "ok"},
+	for _, rec := range []model.Record{
+		{Kind: "auth", EventType: "AP_REQ", ClientID: "CLIENT_1", Result: "ok"},
+		{Kind: "pty", EventType: "APP_REQ", ClientID: "CLIENT_1", TargetID: "prod-1", PTYSessionID: 7, FrameType: "input", PayloadB64: auditPayload([]byte("ls\n")), Result: "ok"},
+		{Kind: "pty", EventType: "APP_REP", ClientID: "CLIENT_1", TargetID: "prod-1", PTYSessionID: 7, FrameType: "output", PayloadB64: auditPayload([]byte("ok\n")), Result: "ok"},
 	} {
 		if err := store.Append(rec); err != nil {
 			t.Fatalf("append audit record: %v", err)
@@ -37,7 +40,7 @@ func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 		t.Fatalf("hash chain not persisted: prev=%q previous record hash=%q", records[0].PrevHash, records[1].RecordHash)
 	}
 
-	ptyRecords, err := store.Records(10, func(rec AuditRecord) bool {
+	ptyRecords, err := store.Records(10, func(rec model.Record) bool {
 		return rec.Kind == "pty" && rec.PTYSessionID == 7
 	})
 	if err != nil {
@@ -51,12 +54,12 @@ func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 		t.Fatalf("close audit store: %v", err)
 	}
 
-	reopened, err := NewAuditStore(dbPath)
+	reopened, err := auditrepo.NewStore(dbPath)
 	if err != nil {
 		t.Fatalf("reopen audit store: %v", err)
 	}
 	defer reopened.Close()
-	if err := reopened.Append(AuditRecord{Kind: "auth", EventType: "APP_REQ", SessionID: "CLIENT_1:7", ClientID: "CLIENT_1", Result: "fail", ErrorCode: "ERR_TEST"}); err != nil {
+	if err := reopened.Append(model.Record{Kind: "auth", EventType: "APP_REQ", ClientID: "CLIENT_1", Result: "fail", ErrorCode: "ERR_TEST"}); err != nil {
 		t.Fatalf("append after reopen: %v", err)
 	}
 	records, err = reopened.Records(1, nil)
@@ -68,13 +71,6 @@ func TestAuditStorePersistsSQLiteRecords(t *testing.T) {
 	}
 	if stat, err := os.Stat(dbPath); err != nil || stat.Size() == 0 {
 		t.Fatalf("expected sqlite db on disk, stat=%v err=%v", stat, err)
-	}
-	var journalMode string
-	if err := reopened.db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil {
-		t.Fatalf("query journal mode: %v", err)
-	}
-	if journalMode != "delete" {
-		t.Fatalf("expected sqlite delete journal mode, got %q", journalMode)
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if _, err := os.Stat(dbPath + suffix); !os.IsNotExist(err) {

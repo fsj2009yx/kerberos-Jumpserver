@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple, List
 
-from krb.msg import KerHeader
+from krb.msg import APPReqPlain, APPReqPayload, APPRepPlain, APPRepPayload, KerHeader
 
 MSG_TYPE_NAMES = {
     0x01: "AS_REQ",
@@ -24,6 +24,7 @@ PTY_OP_NAMES = {
     0x03: "RESIZE",
     0x04: "SIGNAL",
     0x05: "CLOSE",
+    0x06: "OPEN_SSH",
 }
 
 PTY_EVENT_NAMES = {
@@ -32,7 +33,6 @@ PTY_EVENT_NAMES = {
     0x13: "EXIT",
     0x14: "ERROR",
 }
-
 
 def decrypt_des_ecb(data: bytes, key: bytes) -> bytes:
     """DES-CBC解密（IV前置在密文头8字节）"""
@@ -72,7 +72,7 @@ def decrypt_payload(msg_type: int, payload: bytes, key: bytes) -> List[str]:
         elif msg_type == 0x06:
             lines.extend(_decrypt_ap_rep(payload, key))
         elif msg_type == 0x07:
-            lines.extend(_decrypt_app(payload))
+            lines.extend(_decrypt_app(payload, key))
         elif msg_type == 0xff:
             lines.extend(_decrypt_err(payload))
         else:
@@ -491,37 +491,197 @@ def _decrypt_ap_rep(payload: bytes, key_c_v: bytes) -> List[str]:
     return lines
 
 
-def _decrypt_app(payload: bytes) -> List[str]:
-    """解密APP业务消息 payload"""
+def _decrypt_app(payload: bytes, key_c_v: bytes) -> List[str]:
+    """解密APP业务消息 payload，自动识别APP_REQ/APP_REP。"""
+    request_lines = _try_decrypt_app_req(payload, key_c_v)
+    if request_lines is not None:
+        return request_lines
+
+    response_lines = _try_decrypt_app_rep(payload, key_c_v)
+    if response_lines is not None:
+        return response_lines
+
     lines = []
-    if len(payload) < 1:
-        lines.append(f"  [payload too short]")
+    if len(payload) < 2:
+        lines.append("  [payload too short]")
         return lines
 
-    pty_op = payload[0]
-    pty_op_name = PTY_OP_NAMES.get(pty_op, f"0x{pty_op:02x}")
-    lines.append(f"  Pty_Op: {pty_op_name} (0x{pty_op:02x})")
-
-    if len(payload) > 1:
-        pty_payload = payload[1:]
-        lines.append(f"  Payload: {len(pty_payload)} bytes")
-
-        if pty_op == 0x01:
-            lines.extend(_decrypt_pty_open(pty_payload))
-        elif pty_op == 0x03:
-            lines.extend(_decrypt_pty_resize(pty_payload))
-        elif pty_op == 0x04:
-            lines.extend(_decrypt_pty_signal(pty_payload))
-        elif pty_op == 0x02:
-            lines.append(f"    Input data(hex): {pty_payload.hex()}")
-            try:
-                lines.append(f"    As string: {pty_payload.decode('utf-8', errors='replace')}")
-            except:
-                pass
-        else:
-            lines.append(f"    hex: {pty_payload[:64].hex()}{'...' if len(pty_payload) > 64 else ''}")
-
+    lines.append("  [APP payload parse failed]")
+    lines.append(f"  Payload_Len: {len(payload)}")
+    lines.append(f"  Payload(hex): {payload.hex()}")
     return lines
+
+
+def _try_decrypt_app_req(payload: bytes, key_c_v: bytes) -> Optional[List[str]]:
+    """尝试解析并解密APP_REQ外层业务包。"""
+    try:
+        req = APPReqPayload.from_bytes(payload)
+        expected_len = 2 + req.id_client.length + 2 + req.cipher_len + 256
+        if expected_len != len(payload):
+            return None
+        if req.cipher_len != len(req.cipher_data):
+            return None
+        if len(req.rsa_sign_c) != 256:
+            return None
+
+        plain_data = decrypt_des_ecb(req.cipher_data, key_c_v)
+        plain = APPReqPlain.from_bytes(plain_data)
+
+        id_client = req.id_client.data.decode("utf-8", errors="replace")
+        fields = [
+            ("ID_Client", id_client),
+            ("Cipher_Len", str(req.cipher_len)),
+            ("RSA_Sign_c", f"{req.rsa_sign_c.hex()[:64]}... ({len(req.rsa_sign_c)} bytes)"),
+        ]
+        fields.extend(_parse_app_req_plain(plain))
+
+        lines = ["  APP_Direction: APP_REQ"]
+        lines.extend(_format_encrypted_field("APP_REQ.Cipher_Data", req.cipher_data.hex(), plain_data.hex(), fields))
+        return lines
+    except Exception:
+        return None
+
+
+def _try_decrypt_app_rep(payload: bytes, key_c_v: bytes) -> Optional[List[str]]:
+    """尝试解析并解密APP_REP外层业务包。"""
+    try:
+        rep = APPRepPayload.from_bytes(payload)
+        expected_len = 2 + rep.cipher_len + 256
+        if expected_len != len(payload):
+            return None
+        if rep.cipher_len != len(rep.cipher_data):
+            return None
+        if len(rep.rsa_sign_v) != 256:
+            return None
+
+        plain_data = decrypt_des_ecb(rep.cipher_data, key_c_v)
+        plain = APPRepPlain.from_bytes(plain_data)
+
+        fields = [
+            ("Cipher_Len", str(rep.cipher_len)),
+            ("RSA_Sign_v", f"{rep.rsa_sign_v.hex()[:64]}... ({len(rep.rsa_sign_v)} bytes)"),
+        ]
+        fields.extend(_parse_app_rep_plain(plain))
+
+        lines = ["  APP_Direction: APP_REP"]
+        lines.extend(_format_encrypted_field("APP_REP.Cipher_Data", rep.cipher_data.hex(), plain_data.hex(), fields))
+        return lines
+    except Exception:
+        return None
+
+
+def _parse_app_req_plain(plain: APPReqPlain) -> List[Tuple[str, str]]:
+    """解析APP_REQ内层明文。"""
+    pty_op_name = PTY_OP_NAMES.get(plain.pty_op, f"0x{plain.pty_op:02x}")
+    fields = [
+        ("Pty_Op", f"{pty_op_name} (0x{plain.pty_op:02x})"),
+        ("Pty_Session_ID", str(plain.pty_session_id)),
+        ("Payload_Len", str(plain.payload_len)),
+    ]
+    fields.extend(_parse_app_payload(plain.pty_op, plain.payload, is_response=False))
+    return fields
+
+
+def _parse_app_rep_plain(plain: APPRepPlain) -> List[Tuple[str, str]]:
+    """解析APP_REP内层明文。"""
+    event_name = PTY_EVENT_NAMES.get(plain.pty_event, f"0x{plain.pty_event:02x}")
+    fields = [
+        ("Pty_Event", f"{event_name} (0x{plain.pty_event:02x})"),
+        ("Pty_Session_ID", str(plain.pty_session_id)),
+        ("Exit_Code", str(plain.exit_code)),
+        ("Payload_Len", str(plain.payload_len)),
+    ]
+    fields.extend(_parse_app_payload(plain.pty_event, plain.payload, is_response=True))
+    return fields
+
+
+def _parse_app_payload(kind: int, payload: bytes, is_response: bool) -> List[Tuple[str, str]]:
+    """解析业务明文负载字段。"""
+    fields: List[Tuple[str, str]] = []
+    if not payload:
+        fields.append(("Payload", "[empty]"))
+        return fields
+
+    if not is_response and kind == 0x01:
+        fields.extend(_parse_pty_open_fields(payload))
+    elif not is_response and kind == 0x06:
+        fields.extend(_parse_pty_open_ssh_fields(payload))
+    elif not is_response and kind == 0x03:
+        fields.extend(_parse_pty_resize_fields(payload))
+    elif not is_response and kind == 0x04:
+        fields.extend(_parse_pty_signal_fields(payload))
+    elif not is_response and kind == 0x02:
+        fields.append(("Input_Data(hex)", payload.hex()))
+        fields.append(("Input_Data(text)", payload.decode("utf-8", errors="replace")))
+    elif is_response and kind in (0x12, 0x14):
+        label = "Output_Data" if kind == 0x12 else "Error_Data"
+        fields.append((f"{label}(hex)", payload.hex()))
+        fields.append((f"{label}(text)", payload.decode("utf-8", errors="replace")))
+    else:
+        suffix = "..." if len(payload) > 64 else ""
+        fields.append(("Payload(hex)", f"{payload[:64].hex()}{suffix}"))
+
+    return fields
+
+
+def _parse_pty_open_fields(payload: bytes) -> List[Tuple[str, str]]:
+    fields: List[Tuple[str, str]] = []
+    offset = 0
+
+    if offset + 2 > len(payload):
+        return fields
+
+    term_len = int.from_bytes(payload[offset:offset+2], 'big')
+    offset += 2
+
+    if offset + term_len > len(payload):
+        return fields
+
+    term = payload[offset:offset+term_len].decode('utf-8', errors='replace')
+    fields.append(("Term", term))
+    offset += term_len
+
+    if offset + 4 <= len(payload):
+        cols = int.from_bytes(payload[offset:offset+2], 'big')
+        rows = int.from_bytes(payload[offset+2:offset+4], 'big')
+        fields.append(("Cols", str(cols)))
+        fields.append(("Rows", str(rows)))
+
+    return fields
+
+
+def _parse_pty_open_ssh_fields(payload: bytes) -> List[Tuple[str, str]]:
+    fields: List[Tuple[str, str]] = []
+    offset = 0
+    if offset + 2 > len(payload):
+        return fields
+    target_len = int.from_bytes(payload[offset:offset+2], 'big')
+    offset += 2
+    if offset + target_len > len(payload):
+        return fields
+    target_id = payload[offset:offset+target_len].decode('utf-8', errors='replace')
+    fields.append(("Target_ID", target_id))
+    offset += target_len
+    fields.extend(_parse_pty_open_fields(payload[offset:]))
+    return fields
+
+
+def _parse_pty_resize_fields(payload: bytes) -> List[Tuple[str, str]]:
+    if len(payload) < 4:
+        return []
+    cols = int.from_bytes(payload[0:2], 'big')
+    rows = int.from_bytes(payload[2:4], 'big')
+    return [("Cols", str(cols)), ("Rows", str(rows))]
+
+
+def _parse_pty_signal_fields(payload: bytes) -> List[Tuple[str, str]]:
+    if len(payload) >= 4:
+        sig = int.from_bytes(payload[0:4], 'big')
+    elif payload:
+        sig = payload[0]
+    else:
+        return []
+    return [("Signal", str(sig))]
 
 
 def _decrypt_pty_open(payload: bytes) -> List[str]:
@@ -582,14 +742,16 @@ class PacketLog:
     """数据包日志记录类"""
 
     def __init__(self, seq: int, source: str, destination: str, protocol: str,
-                 info: str, raw_data: bytes, decoded_lines: Optional[list] = None):
-        self.id = f"packet-{seq}"
+                 info: str, raw_data: bytes, decoded_lines: Optional[list] = None,
+                 signature: Optional[Dict[str, Any]] = None):
+        self.id = f"packet-{seq}-{uuid.uuid4().hex[:8]}"
         self.seq = seq
         self.timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self.source = source
         self.destination = destination
         self.protocol = protocol
         self.info = info
+        self.signature = signature
         self.raw = self._format_raw(raw_data)
         self.decoded = decoded_lines if decoded_lines is not None else self._decode_payload(raw_data)
 
@@ -646,14 +808,23 @@ class PacketLog:
             "protocol": self.protocol,
             "info": self.info,
             "raw": self.raw,
-            "decoded": self.decoded
+            "decoded": self.decoded,
+            "signature": self.signature,
         }
 
 
 def log_packet(runtime, source: str, destination: str, protocol: str,
-               info: str, raw_data: bytes, decoded_lines: Optional[list] = None):
+               info: str, raw_data: bytes, decoded_lines: Optional[list] = None,
+               signature: Optional[Dict[str, Any]] = None):
     """记录数据包日志"""
-    seq = runtime.consume_seq()
-    packet_log = PacketLog(seq, source, destination, protocol, info, raw_data, decoded_lines)
+    seq = None
+    if len(raw_data) >= 20:
+        try:
+            seq = KerHeader.from_bytes(raw_data[:20]).seq_num
+        except Exception:
+            pass
+    if seq is None:
+        seq = runtime.consume_seq()
+    packet_log = PacketLog(seq, source, destination, protocol, info, raw_data, decoded_lines, signature)
     runtime.logs.append(packet_log)
     return packet_log

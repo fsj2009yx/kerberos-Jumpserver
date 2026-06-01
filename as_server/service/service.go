@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"security-project/common/krb/transport"
 	"sync/atomic"
 	"time"
 
@@ -32,7 +33,7 @@ func NewService(configPath string) *Service {
 	}
 
 	//加载 TGS 密钥 k_tgs，用于加密发给 TGS 的票据和 AS-REP 中的认证数据
-	ktgs, err := krb.LoadConfiguredKey8(cfg.KtgsPath, cfg.KtgsHex, "as k_tgs")
+	ktgs, err := cryptoutil.LoadConfiguredKey8(cfg.KtgsPath, cfg.KtgsHex, "as k_tgs")
 	if err != nil {
 		log.Errorf("[AS] load k_tgs failed err=%v", err)
 		panic(fmt.Sprintf("load k_tgs: %v", err))
@@ -45,7 +46,7 @@ func NewService(configPath string) *Service {
 		IDTGS:   "TGS",
 	}
 	for _, c := range cfg.ClientDB {
-		kc, err := krb.LoadConfiguredKey8(c.KcPath, c.KcHex, "client "+c.ID+" kc")
+		kc, err := cryptoutil.LoadConfiguredKey8(c.KcPath, c.KcHex, "client "+c.ID+" kc")
 		if err != nil {
 			log.Errorf("[AS] load client key failed client=%s err=%v", c.ID, err)
 			panic(fmt.Sprintf("load client key %s: %v", c.ID, err))
@@ -115,7 +116,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 		// 每次循环开始时按配置设置读取截止时间，避免连接长时间无响应导致资源泄漏。
 		_ = conn.SetReadDeadline(time.Now().Add(time.Duration(s.Config.ReadTimeoutSec) * time.Second))
 		// 按配置的最大载荷限制读取一个 Kerberos 协议包。
-		h, payload, err := krb.ReadPacket(conn, s.Config.MaxPayloadBytes)
+		h, payload, err := transport.ReadPacket(conn, s.Config.MaxPayloadBytes)
 		if err != nil {
 			code := krb.CodeFromError(err)
 			if code != krb.ErrSocketRecv {
@@ -153,7 +154,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 			_ = s.writeError(conn, nextConnSeq(), code)
 			return
 		}
-		if err := krb.WritePacket(conn, respType, nextConnSeq(), uint32(time.Now().Unix()), respPayload); err != nil {
+		if err := transport.WritePacket(conn, respType, nextConnSeq(), uint32(time.Now().Unix()), respPayload); err != nil {
 			log.Errorf("[AS] write response failed remote=%s err=%v", remote, err)
 			return
 		}
@@ -226,7 +227,7 @@ func (s *Service) handleASReq(h krb.ProtocolHeader, payload []byte, peerADc uint
 }
 
 func (s *Service) writeError(conn net.Conn, seq uint32, code int32) error {
-	err := krb.WritePacket(conn, krb.MsgErr, seq, uint32(time.Now().Unix()), krb.BuildErrorPayload(code))
+	err := transport.WritePacket(conn, krb.MsgErr, seq, uint32(time.Now().Unix()), krb.BuildErrorPayload(code))
 	if err != nil {
 		log.Errorf("[AS] error response send failed seq=%d code=%s desc=%q err=%v", seq, krb.FormatCode(code), krb.CodeDescription(code), err)
 		return err

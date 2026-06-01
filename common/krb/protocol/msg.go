@@ -1,4 +1,4 @@
-package krb
+package protocol
 
 //msg 定义报文结构体
 

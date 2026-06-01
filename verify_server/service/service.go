@@ -1,16 +1,19 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"sync/atomic"
 	"time"
 
-	"security-project/common/crypto"
+	certutil "security-project/common/cert"
+	cryptoutil "security-project/common/crypto"
 	"security-project/common/krb"
 	"security-project/pkg/utils/log"
 	"security-project/verify_server/config"
+	auditrepo "security-project/verify_server/service/audit/repository"
+	auditservices "security-project/verify_server/service/audit/services"
 )
 
 type Service struct {
@@ -19,10 +22,9 @@ type Service struct {
 	startTime   time.Time
 	nextPtyID   uint32
 	ptyFrames   uint64
-	privKey     *crypto.RSAKey
-	clientCerts map[string]*krb.Certificate
-	audit       *AuditStore
-	httpServer  *http.Server
+	privKey     *cryptoutil.RSAKey
+	clientCerts map[string]*certutil.Certificate
+	audit       *auditservices.Manager
 }
 
 func NewService(configPath string) *Service {
@@ -34,25 +36,25 @@ func NewService(configPath string) *Service {
 	}
 
 	// 加载服务端配置的密钥材料，包括KV和RSA私钥，以及客户端证书等信息，并初始化服务状态
-	kv, err := krb.LoadConfiguredKey8(cfg.KVPath, cfg.KVHex, "v k_v")
+	kv, err := cryptoutil.LoadConfiguredKey8(cfg.KVPath, cfg.KVHex, "v k_v")
 	if err != nil {
 		log.Errorf("[V] load k_v failed err=%v", err)
 		panic(fmt.Sprintf("load k_v: %v", err))
 	}
 
 	// 加载RSA私钥用于后续的消息签名操作，确保服务端能够对发送的消息进行数字签名，以便客户端验证消息的真实性和完整性
-	priv, err := krb.LoadRSAPrivateKey(cfg.PrivKeyPath)
+	priv, err := cryptoutil.LoadRSAPrivateKey(cfg.PrivKeyPath)
 	if err != nil {
 		log.Errorf("[V] load private key failed path=%s err=%v", cfg.PrivKeyPath, err)
 		panic(fmt.Sprintf("load private key: %v", err))
 	}
 	if cfg.CertPath != "" {
-		cert, err := krb.CertLoad(cfg.CertPath)
+		cert, err := certutil.CertLoad(cfg.CertPath)
 		if err != nil {
 			log.Errorf("[V] load own certificate failed path=%s err=%v", cfg.CertPath, err)
 			panic(fmt.Sprintf("load own certificate: %v", err))
 		}
-		if err := krb.CertVerify(cert); err != nil {
+		if err := certutil.CertVerify(cert); err != nil {
 			log.Errorf("[V] verify own certificate failed path=%s err=%v", cfg.CertPath, err)
 			panic(fmt.Sprintf("verify own certificate: %v", err))
 		}
@@ -62,7 +64,7 @@ func NewService(configPath string) *Service {
 		}
 	}
 	auditPath := cfg.AuditPath()
-	audit, err := NewAuditStore(auditPath)
+	auditStore, err := auditrepo.NewStore(auditPath)
 	if err != nil {
 		log.Errorf("[V] init audit store failed path=%s err=%v", auditPath, err)
 		panic(fmt.Sprintf("init audit store: %v", err))
@@ -72,8 +74,14 @@ func NewService(configPath string) *Service {
 		state:       &VState{IDV: cfg.NodeID, Kv: kv, Sessions: make(map[string]*SessionContext)},
 		startTime:   time.Now(),
 		privKey:     priv,
-		clientCerts: make(map[string]*krb.Certificate),
-		audit:       audit,
+		clientCerts: make(map[string]*certutil.Certificate),
+		audit:       auditservices.NewManager(auditStore, cfg.NodeID, kv),
+	}
+
+	// 如果配置文件中定义了SSH目标服务器的信息，则将这些信息导入到服务端的审计管理器中（已弃用）
+	if err := s.importConfigSSHTargets(); err != nil {
+		log.Errorf("[V] import ssh targets failed err=%v", err)
+		panic(fmt.Sprintf("import ssh targets: %v", err))
 	}
 	for _, item := range cfg.ClientDB {
 		if item.CertPath == "" {
@@ -81,12 +89,12 @@ func NewService(configPath string) *Service {
 			panic(fmt.Sprintf("client cert missing: %s", item.ID))
 		}
 		// 加载客户端证书并存储在服务端的内存中，以便在处理客户端请求时能够验证客户端的身份和消息的签名
-		cert, err := krb.CertLoad(item.CertPath)
+		cert, err := certutil.CertLoad(item.CertPath)
 		if err != nil {
 			log.Errorf("[V] client cert load failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
 			panic(fmt.Sprintf("load client cert %s: %v", item.ID, err))
 		}
-		if err := krb.CertVerify(cert); err != nil {
+		if err := certutil.CertVerify(cert); err != nil {
 			log.Errorf("[V] client cert verify failed client=%s path=%s err=%v", item.ID, item.CertPath, err)
 			panic(fmt.Sprintf("verify client cert %s: %v", item.ID, err))
 		}
@@ -97,8 +105,24 @@ func NewService(configPath string) *Service {
 		s.clientCerts[item.ID] = cert
 		log.Infof("[V] client cert loaded and verified client=%s path=%s", item.ID, item.CertPath)
 	}
-	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d pty_shell=%s", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), cfg.PTYShell)
+	targets, _ := s.audit.ListSSHTargets()
+	log.Infof("[V] service initialized node_id=%s clients=%d certs=%d ssh_targets=%d", cfg.NodeID, len(cfg.ClientDB), len(s.clientCerts), len(targets))
 	return s
+}
+
+func (s *Service) importConfigSSHTargets() error {
+	if s == nil || s.Config == nil || len(s.Config.SSHTargets) == 0 {
+		return nil
+	}
+	for _, target := range s.Config.SSHTargets {
+		if len(target.AllowedClients) > 0 && len(target.BlockedClients) == 0 {
+			target.BlockedClients = auditservices.LegacyBlockedClients(s.Config.ClientDB, target.AllowedClients)
+		}
+		if err := s.audit.UpsertSSHTarget(target); err != nil {
+			return fmt.Errorf("import ssh target %s: %w", target.ID, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) Run() error {
@@ -181,7 +205,9 @@ func (s *Service) cleanupConnection(c *ConnState) {
 	if s == nil || c == nil || c.current == nil {
 		return
 	}
-	s.cleanupSession(c.current, "connection close")
+	if c.appBound {
+		s.cleanupPTY(c.current, "app connection close")
+	}
 }
 
 func (s *Service) cleanupSession(sess *SessionContext, reason string) {
@@ -198,6 +224,60 @@ func (s *Service) cleanupSession(sess *SessionContext, reason string) {
 	}
 	s.deleteSession(sess)
 	log.Infof("[V] session cleaned client=%s pty_session_id=%d reason=%s total_frames=%d", sess.IDClient, sess.PtySessionID, reason, atomic.LoadUint64(&sess.TotalFrames))
+}
+
+func (s *Service) cleanupPTY(sess *SessionContext, reason string) {
+	if s == nil || sess == nil {
+		return
+	}
+	ptySessionID := sess.PtySessionID
+	targetID := sess.TargetID
+	targetHost := sess.TargetHost
+	sshUser := sess.SSHUser
+	hadActivePTY := sess.PTY != nil || ptySessionID != 0 || targetID != "" || targetHost != "" || sshUser != ""
+	if !hadActivePTY && sess.Closed.Load() {
+		return
+	}
+	sess.Closed.Store(true)
+	if sess.Cancel != nil {
+		sess.Cancel()
+	}
+	if sess.PTY != nil {
+		if err := sess.PTY.Close(); err != nil {
+			log.Warnf("[V] pty cleanup returned error client=%s pty_session_id=%d reason=%s err=%v", sess.IDClient, sess.PtySessionID, reason, err)
+		}
+		sess.PTY = nil
+	}
+	if hadActivePTY {
+		s.appendAudit(AuditRecord{
+			Kind:         "pty",
+			EventType:    "PTY_CLEANUP",
+			ClientID:     sess.IDClient,
+			ClientAddr:   sess.ClientAddr,
+			TargetID:     targetID,
+			TargetHost:   targetHost,
+			SSHUser:      sshUser,
+			PTYSessionID: ptySessionID,
+			FrameType:    reason,
+			Result:       "ok",
+		})
+	}
+	sess.PtySessionID = 0
+	sess.TargetID = ""
+	sess.TargetHost = ""
+	sess.SSHUser = ""
+	sess.LastIO = time.Now()
+	log.Infof("[V] pty cleaned client=%s pty_session_id=%d reason=%s total_frames=%d", sess.IDClient, ptySessionID, reason, atomic.LoadUint64(&sess.TotalFrames))
+}
+
+func (s *Service) resetPTYContext(sess *SessionContext) {
+	if sess == nil {
+		return
+	}
+	if sess.Cancel != nil {
+		sess.Cancel()
+	}
+	sess.Ctx, sess.Cancel = context.WithCancel(context.Background())
 }
 
 func (s *Service) deleteSession(sess *SessionContext) {

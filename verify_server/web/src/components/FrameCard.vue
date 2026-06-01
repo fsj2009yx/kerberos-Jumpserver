@@ -6,7 +6,6 @@ import {
   formatBytes,
   formatTime,
   frameTitle,
-  sessionKey,
   shortHash,
   tagTypeForDirection,
   tagTypeForResult,
@@ -18,7 +17,6 @@ const props = defineProps({
 
 const payloadText = computed(() => decodeBase64(props.record.payload_b64))
 const title = computed(() => frameTitle(props.record))
-const auditKey = computed(() => sessionKey(props.record))
 const timeText = computed(() => formatTime(props.record.time || props.record.ts))
 const sizeText = computed(() => formatBytes(props.record.frame_size))
 const hashText = computed(() => shortHash(props.record.record_hash, 12))
@@ -55,13 +53,16 @@ const resultType = computed(() => tagTypeForResult(props.record.result))
         </div>
         <div>
           <dt>Remote</dt>
-          <dd>{{ record.client_ip || '-' }}</dd>
+          <dd>{{ record.client_addr || '-' }}</dd>
         </div>
         <div>
-          <dt>Session</dt>
+          <dt>Target</dt>
           <dd>
-            <RouterLink v-if="auditKey" :to="{ name: 'audit-session', query: { id: auditKey } }">
-              {{ auditKey }}
+            <RouterLink
+              v-if="record.client_id && record.target_id"
+              :to="{ name: 'audit-session', query: { client_id: record.client_id, target_id: record.target_id } }"
+            >
+              {{ record.target_id }}
             </RouterLink>
             <span v-else>-</span>
           </dd>

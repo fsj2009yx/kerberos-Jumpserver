@@ -465,6 +465,108 @@ h3 {
   padding: 12px;
 }
 
+.target-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 14px;
+}
+
+.target-form .el-form-item {
+  min-width: 0;
+}
+
+.target-form .el-form-item:last-child {
+  grid-column: 1 / -1;
+}
+
+.target-form .el-input-tag {
+  width: 100%;
+}
+
+.target-dialog .el-dialog__body {
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+}
+
+.target-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.target-list {
+  display: grid;
+  gap: 12px;
+}
+
+.target-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.target-card-main {
+  padding: 16px;
+}
+
+.target-card-head {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.target-card-head span {
+  display: block;
+  margin-top: 4px;
+  color: #647486;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.target-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.target-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.target-fields div {
+  min-width: 0;
+  border: 1px solid #e2e8ee;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.target-fields dt {
+  color: #7b8898;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.target-fields dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+  margin: 5px 0 0;
+  color: #263443;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.target-password code {
+  overflow-wrap: anywhere;
+}
+
 .inline-code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
@@ -515,7 +617,9 @@ h3 {
   .filter-bar,
   .metrics-grid,
   .metrics-grid.narrow,
-  .content-grid.two-col {
+  .content-grid.two-col,
+  .target-form,
+  .target-fields {
     grid-template-columns: 1fr;
   }
 

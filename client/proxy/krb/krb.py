@@ -12,7 +12,12 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from krb.msg import *
-from krb.logger import log_packet as krb_log_packet, decrypt_payload
+from krb.logger import (
+    PTY_EVENT_NAMES,
+    PTY_OP_NAMES,
+    decrypt_payload,
+    log_packet as krb_log_packet,
+)
 from crypto.des import encrypt_des_cbc, decrypt_des_cbc
 from crypto.sha256 import sha256
 from crypto.rsa import rsa_sign, rsa_verify
@@ -131,7 +136,7 @@ def _connected_hosts(sock: socket.socket, peer_fallback: str = "unknown") -> tup
 
 
 def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes, 
-                runtime=None, src_addr=None, dst_addr=None):
+                runtime=None, src_addr=None, dst_addr=None) -> bytes:
     """发送一个Kerberos协议包"""
     # 从socket获取地址，如果没有提供的话
     if src_addr is None:
@@ -157,6 +162,7 @@ def send_packet(sock: socket.socket, msg_type: int, seq_num: int, payload: bytes
     
     
     sock.sendall(packet)
+    return packet
 
 
 def recv_packet(sock: socket.socket, runtime=None, src_addr=None, dst_addr=None) -> tuple[KerHeader, bytes]:
@@ -383,6 +389,45 @@ def unpack_app_rep(payload: bytes, key_c_v: bytes, seq_num: int, v_pub_key: dict
     return APPRepPlain.from_bytes(plain_data)
 
 
+def _signature_status(required: bool, verified: Optional[bool], signer: str,
+                      verifier: str, detail: str) -> dict:
+    if not required:
+        status = "not_required"
+    elif verified is True:
+        status = "verified"
+    elif verified is False:
+        status = "failed"
+    else:
+        status = "pending"
+    return {
+        "required": required,
+        "verified": verified,
+        "status": status,
+        "algorithm": "RSA-SHA256",
+        "signer": signer,
+        "verifier": verifier,
+        "detail": detail,
+    }
+
+
+def _app_req_info(pty_op: int, pty_session_id: int, payload_len: int) -> str:
+    op_name = PTY_OP_NAMES.get(pty_op, f"0x{pty_op:02x}")
+    return f"APP_REQ decrypted - {op_name} session={pty_session_id} payload={payload_len} bytes"
+
+
+def _app_rep_info(rep: APPRepPlain) -> str:
+    event_name = PTY_EVENT_NAMES.get(rep.pty_event, f"0x{rep.pty_event:02x}")
+    return f"APP_REP decrypted - {event_name} session={rep.pty_session_id} payload={rep.payload_len} bytes"
+
+
+def _app_rep_failed_signature_info(resp_payload: bytes) -> str:
+    try:
+        app_rep = APPRepPayload.from_bytes(resp_payload)
+        return f"APP_REP signature failed - cipher={len(app_rep.cipher_data)} bytes"
+    except Exception:
+        return "APP_REP signature failed"
+
+
 def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig, timeout: Optional[float] = None) -> Optional[APPRepPlain]:
     """从已认证的V连接上读取一个APP响应帧。timeout到期时返回None。"""
     sock = rt.v_sock
@@ -408,7 +453,53 @@ def client_app_recv_frame(rt: ClientRuntime, cfg: ClientConfig, timeout: Optiona
         raise RuntimeError(msg)
     try:
         v_pub_key = load_verified_v_public_key(cfg)
-        return unpack_app_rep(resp_payload, rt.bundle.key_c_v, header.seq_num, v_pub_key)
+        local_host, peer_host = _connected_hosts(sock, cfg.v_addr[0])
+        full_packet = header.to_bytes() + resp_payload
+        try:
+            app_rep = unpack_app_rep(resp_payload, rt.bundle.key_c_v, header.seq_num, v_pub_key)
+        except Exception:
+            krb_log_packet(
+                rt,
+                peer_host,
+                local_host,
+                "APP",
+                _app_rep_failed_signature_info(resp_payload),
+                full_packet,
+                [
+                    "  APP_Direction: APP_REP",
+                    "  Signature_Required: yes",
+                    "  Signature_Verified: no",
+                    "  Verify_Status: failed",
+                    f"  Payload(hex): {resp_payload.hex()}",
+                ],
+                _signature_status(
+                    True,
+                    False,
+                    cfg.service_id,
+                    cfg.client_id,
+                    "APP_REP RSA signature verification failed; plaintext was not trusted.",
+                ),
+            )
+            raise
+
+        decoded_lines = decrypt_payload(0x07, resp_payload, rt.bundle.key_c_v)
+        krb_log_packet(
+            rt,
+            peer_host,
+            local_host,
+            "APP",
+            _app_rep_info(app_rep),
+            full_packet,
+            decoded_lines,
+            _signature_status(
+                True,
+                True,
+                cfg.service_id,
+                cfg.client_id,
+                "APP_REP RSA signature verified before DES-CBC plaintext was accepted.",
+            ),
+        )
+        return app_rep
     except Exception as e:
         log_error(f"APP response verification/decrypt failed: {type(e).__name__}: {e}")
         try:
@@ -438,7 +529,7 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         # 构造AS_REQ
         ts1 = int(time.time())
         log_debug(f"Constructing AS_REQ - TS1: {ts1}")
-        payload = pack_as_req(username, "TGS", ts1)
+        payload = pack_as_req(username, "TGS", ts1)#打包成协议规定的二进制格式
         log_debug(f"AS_REQ payload length: {len(payload)} bytes")
         
          
@@ -448,18 +539,18 @@ def client_do_as(rt: ClientRuntime, cfg: ClientConfig, username: str, password: 
         krb_log_packet(rt, local_host, peer_host, "KRB5",
                     "AS_REQ - Client authentication request",
                     krb_pack(0x01, seq, ts1, payload), decoded_lines)  
-        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, local_host, peer_host)
+        header, resp_payload = send_recv_packet(sock, 0x01, seq, payload, rt, local_host, peer_host)#发送一个 Kerberos 请求包，然后原地等待接收服务器的响应包
         log_info("AS_REQ sent and AS_REP received")
         
         # 解密响应（password作为Kc）
-        kc = password.encode().ljust(8)[:8]  # 确保8字节
+        kc = password.encode().ljust(8)[:8]  # 确保8字节客户端自己的主密钥（用户密钥）
         log_debug(f"Kc (from password): {kc.hex()}")
         
         # 记录解密前的密文
         log_debug(f"Encrypted AS_REP payload: {len(resp_payload)} bytes")
         hexdump(resp_payload, "Encrypted AS_REP:")
         
-        as_rep = unpack_as_rep(resp_payload, kc)
+        as_rep = unpack_as_rep(resp_payload, kc)# 解包+解密：拿到会话密钥和TGT
 
         # 使用统一解密函数记录解密后的日志
         full_packet = header.to_bytes() + resp_payload
@@ -525,7 +616,7 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
         log_debug(f"Constructing TGS_REQ - TS3: {ts3}, ID_V: {id_v}")
         
         payload = pack_tgs_req(id_v, rt.bundle.ticket_tgs, rt.bundle.key_c_tgs,
-                              cfg.client_id, cfg.ad_c, ts3)
+                              cfg.client_id, cfg.ad_c, ts3) # 打包：构造TGS请求（TGT+认证器）
         log_debug(f"TGS_REQ payload length: {len(payload)} bytes")
         log_debug(f"Using Key_C_TGS: {rt.bundle.key_c_tgs.hex()}")
         log_debug(f"Ticket_TGS length: {len(rt.bundle.ticket_tgs)} bytes")
@@ -540,7 +631,7 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
             timestamp=ts3,
             addition=0
         )
-        tgs_req_packet = tgs_req_header.to_bytes() + payload
+        tgs_req_packet = tgs_req_header.to_bytes() + payload#组成完整的能发给服务器的数据包
 
         # 使用统一解密函数解密TGS_REQ (Ticket_TGS需要K_tgs可能无法解密，Authenticator_c用Key_c_tgs解密)
         decoded_lines = decrypt_payload(0x03, payload, rt.bundle.key_c_tgs)
@@ -549,14 +640,14 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
 
         # TGS 是一次性TCP连接，SEQ在连接内从1开始。
         seq = 1
-        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, local_host, peer_host)
+        header, resp_payload = send_recv_packet(sock, 0x03, seq, payload, rt, local_host, peer_host)# 发送并等待响应
         log_info("TGS_REQ sent and TGS_REP received")
         
         # 解密响应
         log_debug(f"Encrypted TGS_REP payload: {len(resp_payload)} bytes")
         hexdump(resp_payload, "Encrypted TGS_REP:")
         
-        tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)
+        tgs_rep = unpack_tgs_rep(resp_payload, rt.bundle.key_c_tgs)# 解包+解密：拿到业务票据和密钥
 
         # 使用统一解密函数记录解密后的日志
         full_packet = header.to_bytes() + resp_payload
@@ -567,8 +658,8 @@ def client_do_tgs(rt: ClientRuntime, cfg: ClientConfig, id_v: str) -> int:
                        "TGS_REP decrypted - Key_c_v, Ticket_V", full_packet, decoded_lines)
 
         # 更新运行时状态
-        rt.bundle.key_c_v = tgs_rep.key_c_v
-        rt.bundle.ticket_v = tgs_rep.ticket_v
+        rt.bundle.key_c_v = tgs_rep.key_c_v#密钥
+        rt.bundle.ticket_v = tgs_rep.ticket_v#票据
         rt.bundle.tv_expire = tgs_rep.ts4 + tgs_rep.lifetime
         
         # 记录解密后的信息
@@ -669,7 +760,8 @@ def client_do_ap(rt: ClientRuntime, cfg: ClientConfig) -> int:
         log_state_change(rt.state, "STATE_V_CONNECTED")
         rt.state = "STATE_V_CONNECTED"
         
-        # 保存socket用于后续业务通信；V 服务要求 AP 和 APP 在同一 TCP 连接上。
+        # 保存AP socket供调用方验证AP_REP；登录完成后代理层会关闭它。
+        # 后续APP业务使用新的TCP连接，并由V根据APP_REQ外层ID_Client绑定已认证会话。
         rt.session_id = f"session_{ts5}"
         rt.v_sock = sock
         log_info(f"Session ID: {rt.session_id}")
@@ -720,7 +812,25 @@ def client_app_send_frame(rt: ClientRuntime, cfg: ClientConfig,
                                       pty_op, pty_session_id, payload, priv_key, seq)
         
         # 发送请求
-        send_packet(sock, 0x07, seq, app_req_payload)
+        local_host, peer_host = _connected_hosts(sock, cfg.v_addr[0])
+        full_packet = send_packet(sock, 0x07, seq, app_req_payload, rt, local_host, peer_host)
+        decoded_lines = decrypt_payload(0x07, app_req_payload, rt.bundle.key_c_v)
+        krb_log_packet(
+            rt,
+            local_host,
+            peer_host,
+            "APP",
+            _app_req_info(pty_op, pty_session_id, len(payload)),
+            full_packet,
+            decoded_lines,
+            _signature_status(
+                True,
+                None,
+                cfg.client_id,
+                cfg.service_id,
+                "APP_REQ is signed by the client; verification is performed by the V server.",
+            ),
+        )
 
         deadline = time.time() + 5
         while True:

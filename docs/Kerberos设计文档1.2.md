@@ -68,7 +68,7 @@
 
 实现多线程并发处理
 
-在已实现的 Kerberos 基础上，基于 `Xterm.js` 和 `Go PTY` 实现零信任访问审计系统：Kerberos 提供身份验证和加密通信保证，RSA 签名实现双向不可否认，V 服务器对 Client 的每一条 PTY 输入/输出帧后台记录并存入数据库
+在已实现的 Kerberos 基础上，基于 `Xterm.js`、`Go PTY` 和 SSH remote PTY 实现零信任跳板机访问审计系统：Kerberos 提供 Client 到 V 的身份验证和加密通信保证，RSA 签名实现双向不可否认，V 服务器对 Client 的每一条终端输入/输出帧后台记录并存入数据库；当 V 作为跳板机时，后端 SSH 登录凭据由 V 侧配置管理
 
 ## 源代码管理
 
@@ -368,7 +368,25 @@ struct Ker_Header {
 }
 ```
 
-> TGS 节点额外包含 `"k_v_path"` 字段（与 V 共享的长期密钥路径）；V 节点额外包含 `"k_v_path"`、`"cli_whitelist"` 和 `"audit_db_file"` 字段；Client 节点包含 `"as_host"`、`"as_port"`、`"tgs_host"`、`"tgs_port"`、`"v_host"`、`"v_port"`、`"v_cert_path"` 等远端地址与证书配置。
+> TGS 节点额外包含 `"k_v_path"` 字段（与 V 共享的长期密钥路径）；V 节点额外包含 `"k_v_path"`、`"cli_whitelist"`、`"audit_db_file"` 和 `"ssh_targets"` 字段。Client 节点需要 `"as_host"`、`"as_port"`、`"tgs_host"`、`"tgs_port"`、`"v_host"`、`"v_port"`、`"v_webui_host"`、`"v_webui_port"`、`"v_cert_path"` 等远端地址与证书配置。Client 认证到 V 后，通过 V Web API 拉取可选 SSH 节点列表；V 侧 `ssh_targets` 是授权和连接的唯一权威来源。
+
+V 作为跳板机时，后端 SSH 目标只配置在 V 侧。简化部署可统一使用 SSH 用户 `ssh_user` 和密码 `REPLACE_WITH_SSH_PASSWORD`：
+
+```json
+{
+  "ssh_targets": [
+    {
+      "id": "prod-1",
+      "host": "10.0.0.11",
+      "port": 22,
+      "ssh_user": "ssh_user",
+      "auth_type": "password",
+      "password": "REPLACE_WITH_SSH_PASSWORD",
+      "allowed_clients": ["CLIENT_1", "CLIENT_2"]
+    }
+  ]
+}
+```
 
 ---
 
@@ -1015,9 +1033,9 @@ sequenceDiagram
 
     rect rgb(240, 248, 255)
     Note over C, D: 阶段一：建立 PTY 会话
-    C->>V: APP_REQ [PTY_Op=OPEN, Term/Cols/Rows, RSA_Sign_c]
+    C->>V: APP_REQ [PTY_Op=OPEN_LOCAL 或 OPEN_SSH, Target/Term/Cols/Rows, RSA_Sign_c]
     Note right of V: 优先验签 (Early Drop)<br/>解密后校验 OPEN 参数
-    V->>P: 创建 Go PTY 会话
+    V->>P: 创建本地 Go PTY 会话，或按 target_id 连接后端 SSH 并申请远端 PTY
     V->>D: 写入基础审计 (User, Session_ID, 状态:进行中)
     V->>C: APP_REP [PTY_Event=OPEN_OK, PTY_Session_ID]
     end
@@ -1088,14 +1106,15 @@ STATE_AS_DONE (持有 TGT 和 K_c,tgs)
     │── client_do_tgs()
     ↓
 STATE_TGS_DONE (持有 Ticket_V 和 K_c,v)
-    │── client_do_ap()
+    │── client_do_ap()，只做一次 AP 互认证
     ↓
-STATE_V_CONNECTED (Session 建立，可发送业务消息)
-    │── client_app_send_frame()/client_app_recv_frame() (可反复调用)
+STATE_V_CONNECTED (V 端 Kerberos Session 建立)
+    │── 关闭 AP TCP 探测连接，本地回到 STATE_TGS_DONE，但 V 保留 Kerberos Session
+    │── 打开独立 APP TCP 连接，client_app_send_frame()/client_app_recv_frame() (可反复调用)
     │
     ├── (Ticket_V 过期) ──→ STATE_TGS_DONE (重走 TGS + AP)
     ├── (TGT 过期)     ──→ STATE_INIT     (重走全流程)
-    └── (网络断开)     ──→ STATE_INIT     (重新连接并认证)
+    └── (APP 网络断开) ─→ STATE_TGS_DONE  (保留票据和 V 端 Session，下次仅重建 APP TCP)
 
 STATE_ERROR (任何不可恢复错误) ──→ 展示错误信息，等待用户重新登录
 ```
@@ -1134,16 +1153,19 @@ sequenceDiagram
     Note right of C: 阶段 3：AP 交互 (互认证)
     C->>V: client_do_ap() [发送 AP_REQ]
     V-->>C: 返回 AP_REP (验证通过)
-    Note over C: 状态跃迁: STATE_V_CONNECTED
+    Note over V: 创建/刷新 Kerberos Session，保存 K_c,v
+    Note over C: AP 连接关闭；本地保留 Ticket_V 与 K_c,v
     end
 
     C-->>Web: 返回 JSON (cert_client.json)
 
     rect rgb(230, 230, 250)
     Note right of C: 阶段 4：PTY 流式交互 (EtS 认证加密)
+    C->>V: 新建 APP TCP 连接，不重复 AP_REQ
     Web->>C: WebSocket CONNECT /ws/pty
-    Web->>C: WS Frame {op:"open", term, cols, rows}
-    C->>V: client_app_send_frame() [APP_REQ: PTY_Op=OPEN]
+    Web->>C: WS Frame {op:"open", target_id, term, cols, rows}
+    C->>V: client_app_send_frame() [APP_REQ: PTY_Op=OPEN_SSH]
+    Note over V: 根据 APP_REQ 外层 ID_Client 绑定已认证 Kerberos Session
     V-->>C: APP_REP [PTY_Event=OPEN_OK + RSA_Sign_v]
     loop 会话期间
         Web->>C: WS Frame {op:"input"/"resize"/"signal", ...}
@@ -1345,7 +1367,8 @@ client WEB API 监听 9883 端口：
 | `GET /api/state`  | GET       | 当前 Client 状态                | `{state, k_ctgs_sha256, k_cv_sha256, tgt_expire, tv_expire}`                                                    |
 | `GET /api/cert`   | GET       | 本 Client 证书                  | `{id,issuer, public_key:{n,e}, expire, sign}`                                                                   |
 | `SSE /api/logs`   | SSE       | 通信封包记录(实时回传 WEBUI)    | `{logs: [{packet_ascii,decode_packet_ascii}]}`                                                                  |
-| `WS /ws/pty`      | WebSocket | PTY 长连接会话，发送/接收终端帧 | C->S:`{op, session_id, data(base64), cols, rows, signal}`；S->C: `{event, session_id, data(base64), exit_code}` |
+| `GET /api/targets` | GET       | 获取可选择的 SSH 目标元数据，不返回凭据 | `{targets:[{id,host,port,ssh_user}]}` |
+| `WS /ws/pty`      | WebSocket | PTY 长连接会话，发送/接收终端帧 | C->S:`{op, target_id, session_id, data(base64), cols, rows, signal}`；S->C: `{event, session_id, data(base64), exit_code}` |
 
 > 注意，Client 网络核心代理在通过 WEB API 拿到 json 数据解析后再进行网络封包
 >
@@ -1359,6 +1382,7 @@ client WEB API 监听 9883 端口：
 | 方向          | 字段         | 语义                                                   |
 | ------------- | ------------ | ------------------------------------------------------ |
 | Web -> Client | `op`         | `open` / `input` / `resize` / `signal` / `close`       |
+| Web -> Client | `target_id`  | `open` 时可携带；非空表示通过 V 打开对应 SSH 目标       |
 | Web -> Client | `session_id` | `open` 时可缺省或传 `0`；其余帧必须携带已分配的会话 ID |
 | Web -> Client | `data`       | `input` 时为 base64 的原始键盘输入；`open` 时可留空    |
 | Web -> Client | `cols, rows` | `open/resize` 必填，终端窗口尺寸                       |
@@ -2203,10 +2227,10 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 | **类型**   | **字段名**         | **说明**                                                                                               |
 | ---------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
-| **uint8**  | **PTY_Op**         | **操作码**：`0x01=OPEN`，`0x02=INPUT`，`0x03=RESIZE`，`0x04=SIGNAL`，`0x05=CLOSE`。                    |
+| **uint8**  | **PTY_Op**         | **操作码**：`0x01=OPEN_LOCAL`，`0x02=INPUT`，`0x03=RESIZE`，`0x04=SIGNAL`，`0x05=CLOSE`，`0x06=OPEN_SSH`。 |
 | **uint32** | **PTY_Session_ID** | PTY 会话 ID。`OPEN` 时由 Client 传 0，V 在 `OPEN_OK` 中分配并回传。                                    |
 | **uint32** | **Payload_Len**    | 后续 Payload 的字节数。                                                                                |
-| **bytes**  | **Payload**        | 按`PTY_Op` 解释：`OPEN`=终端参数，`INPUT`=原始键盘字节流，`RESIZE`=行列，`SIGNAL`=信号值，`CLOSE`=空。 |
+| **bytes**  | **Payload**        | 按`PTY_Op` 解释：`OPEN_LOCAL`=本地终端参数，`OPEN_SSH`=后端目标和终端参数，`INPUT`=原始键盘字节流，`RESIZE`=行列，`SIGNAL`=信号值，`CLOSE`=空。 |
 
 ```
  0                   1                   2                   3
@@ -2245,7 +2269,8 @@ Client 收到后：解密 Enc_Part → 验证 `TS5+1 == TS5 + 1` → 双向认�
 
 | **PTY_Op** | **Payload 结构**                                              |
 | ---------- | ------------------------------------------------------------- |
-| `OPEN`     | `TermLen(uint16) + Term(bytes) + Cols(uint16) + Rows(uint16)` |
+| `OPEN_LOCAL` | `TermLen(uint16) + Term(bytes) + Cols(uint16) + Rows(uint16)` |
+| `OPEN_SSH` | `TargetIDLen(uint16) + TargetID(bytes) + TermLen(uint16) + Term(bytes) + Cols(uint16) + Rows(uint16)` |
 | `INPUT`    | `StdinChunk(bytes)`                                           |
 | `RESIZE`   | `Cols(uint16) + Rows(uint16)`                                 |
 | `SIGNAL`   | `Signal(uint8)`：`1=INT`，`2=TERM`，`3=KILL`                  |

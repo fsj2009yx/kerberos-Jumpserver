@@ -15,6 +15,18 @@ type StateResult = {
   seq_num?: number;
 };
 
+export type TargetInfo = {
+  id: string;
+  host?: string;
+  port?: number;
+  ssh_user?: string;
+};
+
+type TargetsResult = {
+  targets?: TargetInfo[];
+  error?: string;
+};
+
 const API_BASE_URL = "http://127.0.0.1:9883";
 
 export const getLogsUrl = (): string => `${API_BASE_URL}/api/logs`;
@@ -73,4 +85,14 @@ export const getState = async (): Promise<StateResult> => {
   }
 
   return data;
+};
+
+export const getTargets = async (): Promise<TargetInfo[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/targets`);
+  const data = (await response.json()) as TargetsResult;
+  if (!response.ok || data.error) {
+    throw new Error(data.error ?? `Targets request failed with status ${response.status}`);
+  }
+
+  return data.targets ?? [];
 };

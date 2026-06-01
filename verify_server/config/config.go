@@ -20,6 +20,20 @@ type ClientCertEntry struct {
 	Addr     string `json:"addr,omitempty"`
 }
 
+type SSHTarget struct {
+	ID             string   `json:"id"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	SSHUser        string   `json:"ssh_user"`
+	AuthType       string   `json:"auth_type"`
+	KeyPath        string   `json:"key_path,omitempty"`
+	Password       string   `json:"password,omitempty"`
+	PasswordPath   string   `json:"password_path,omitempty"`
+	KnownHostsPath string   `json:"known_hosts_path,omitempty"`
+	AllowedClients []string `json:"allowed_clients,omitempty"` // legacy whitelist used only when importing old config
+	BlockedClients []string `json:"blocked_clients,omitempty"`
+}
+
 type Config struct {
 	NodeID           string            `json:"node_id"`
 	ListenHost       string            `json:"listen_host"`
@@ -38,10 +52,10 @@ type Config struct {
 	AuditLogFile     string            `json:"audit_log_file,omitempty"` // legacy alias
 	KVPath           string            `json:"k_v_path,omitempty"`
 	KVHex            string            `json:"k_v_hex,omitempty"`
-	PTYShell         string            `json:"pty_shell"`
 	PTYDefaultTerm   string            `json:"pty_default_term"`
 	CLIWhitelist     []string          `json:"cli_whitelist"`
 	ClientDB         []ClientCertEntry `json:"client_db"`
+	SSHTargets       []SSHTarget       `json:"ssh_targets,omitempty"` // legacy import path; runtime targets live in SQLite
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -81,7 +95,6 @@ func (c *Config) validate() error {
 	}
 	requiredString("log_level", c.LogLevel)
 	requiredString("privkey_path", c.PrivKeyPath)
-	requiredString("pty_shell", c.PTYShell)
 	requiredString("pty_default_term", c.PTYDefaultTerm)
 	if c.ListenPort <= 0 {
 		return errors.New("listen_port must be greater than 0")
@@ -125,6 +138,11 @@ func (c *Config) ensureConfiguredDirs() {
 	ensureFileDir(c.KVPath)
 	for _, client := range c.ClientDB {
 		ensureFileDir(client.CertPath)
+	}
+	for _, target := range c.SSHTargets {
+		ensureFileDir(target.KeyPath)
+		ensureFileDir(target.PasswordPath)
+		ensureFileDir(target.KnownHostsPath)
 	}
 }
 
