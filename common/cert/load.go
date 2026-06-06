@@ -83,15 +83,6 @@ func (c *Certificate) PublicKeyRSA() (*crypto.RSAKey, error) {
 	return &crypto.RSAKey{N: n, E: e}, nil
 }
 
-func CertFindByID(id string, certDB []*Certificate) *Certificate {
-	for _, cert := range certDB {
-		if cert != nil && cert.ID == id {
-			return cert
-		}
-	}
-	return nil
-}
-
 func decodeSignature(s string) ([]byte, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {

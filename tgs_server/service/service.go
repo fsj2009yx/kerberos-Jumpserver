@@ -213,24 +213,32 @@ func (s *Service) handleTGSReq(h krb.ProtocolHeader, payload []byte, peerADc uin
 		log.Warnf("[TGS] build service ticket failed client=%s id_v=%s err=%v", clientID, idV, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
 	}
+
+	//Ticket票据加密
 	ticketVCipher, err := cryptoutil.EncryptDESCBC(secret.Kv, ticketVPlain)
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrDESPadding)
 		log.Errorf("[TGS] encrypt service ticket failed client=%s id_v=%s err=%v", clientID, idV, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrDESPadding), err
 	}
+
+	//构建TGS明文
 	innerPlain, err := krb.BuildTGSRepPlain(keyCV, idV, ts4, s.Config.TicketLifetimeSec, ticketVCipher)
 	if err != nil {
 		log.Warnf("[TGS] build TGS_REP plain failed client=%s id_v=%s err=%v", clientID, idV, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
 	}
+
+	//明文加密
 	encPart, err := cryptoutil.EncryptDESCBC(ticket.KeyCTGS, innerPlain)
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrDESPadding)
 		log.Errorf("[TGS] encrypt TGS_REP failed client=%s id_v=%s err=%v", clientID, idV, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrDESPadding), err
 	}
-	resp, err := krb.BuildASRepPayload(encPart)
+
+	//构建TGS-REP消息的加密部分
+	resp, err := krb.BuildEncPack(encPart)
 	if err != nil {
 		log.Warnf("[TGS] build TGS_REP payload failed client=%s id_v=%s err=%v", clientID, idV, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err

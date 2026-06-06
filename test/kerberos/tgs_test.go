@@ -75,9 +75,9 @@ func TestKerberosTGSMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncryptDESCBC(tgs rep) failed: %v", err)
 	}
-	wire, err := krb.BuildASRepPayload(encPart)
+	wire, err := krb.BuildEncPack(encPart)
 	if err != nil {
-		t.Fatalf("BuildASRepPayload failed: %v", err)
+		t.Fatalf("BuildEncPack failed: %v", err)
 	}
 	outer, err := krb.ParseASRepPayload(wire)
 	if err != nil {

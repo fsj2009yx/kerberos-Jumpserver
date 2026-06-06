@@ -140,9 +140,9 @@ func main() {
 	if err != nil {
 		testio.Failf("EncryptDESCBC(as rep) failed: %v", err)
 	}
-	wire, err := krb.BuildASRepPayload(encPart)
+	wire, err := krb.BuildEncPack(encPart)
 	if err != nil {
-		testio.Failf("BuildASRepPayload failed: %v", err)
+		testio.Failf("BuildEncPack failed: %v", err)
 	}
 	repPacket := krb.PackPacket(krb.MsgASRep, 2, in.TS2, wire)
 	outer, err := krb.ParseASRepPayload(wire)

@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// NormalizeClientList 规范化客户端列表，去除空项、重复项，并进行字符串清理
 func NormalizeClientList(items []string) []string {
 	seen := make(map[string]bool, len(items))
 	out := make([]string, 0, len(items))
@@ -129,6 +130,7 @@ func (m *Manager) UpdateBlockedClients(id string, blocked []string) ([]string, e
 	return NormalizeClientList(blocked), nil
 }
 
+// normalizeTarget 作用是对输入的 SSH 目标配置进行清理和验证
 func normalizeTarget(target config.SSHTarget, passwordRequired bool) (config.SSHTarget, error) {
 	target.ID = strings.TrimSpace(target.ID)
 	target.Host = strings.TrimSpace(target.Host)

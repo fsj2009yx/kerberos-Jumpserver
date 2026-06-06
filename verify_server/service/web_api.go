@@ -22,6 +22,7 @@ func (s *Service) runWebUI() {
 	}
 }
 
+// Status 返回服务的当前状态信息，包括节点ID、运行时间、活跃会话数等。
 func (s *Service) Status() map[string]any {
 	s.state.mu.RLock()
 	activeKerberos := len(s.state.Sessions)
@@ -43,6 +44,7 @@ func (s *Service) Status() map[string]any {
 	}
 }
 
+// Sessions 返回当前所有活跃的Kerberos会话信息
 func (s *Service) Sessions() []map[string]any {
 	s.state.mu.RLock()
 	defer s.state.mu.RUnlock()

@@ -41,7 +41,7 @@ type ASReqPayload struct {
 	TS1      uint32
 }
 
-type ASRepPayloadWire struct {
+type EncPackPayloadWire struct {
 	CipherLen uint32
 	EncPart   []byte
 }

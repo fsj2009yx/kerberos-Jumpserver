@@ -175,6 +175,7 @@ func (appOpenSSHHandler) Handle(s *Service, ctx appOperationContext, operation a
 		log.Errorf("[V] ssh pty start failed client=%s target=%s host=%s:%d user=%s term=%s cols=%d rows=%d err=%v", current.IDClient, target.ID, target.Host, target.Port, target.SSHUser, req.term, req.cols, req.rows, startErr)
 		return krb.MsgApp, s.buildAPPRep(current, ctx.respSeq, pty.EventError, current.PtySessionID, -1, []byte("ssh pty start failed")), startErr
 	}
+
 	s.resetPTYContext(current)
 	current.PTY = sshSession
 	current.PtySessionID = s.nextSessionID()

@@ -50,7 +50,7 @@ const (
 type KString = protocol.KString
 type ProtocolHeader = protocol.ProtocolHeader
 type ASReqPayload = protocol.ASReqPayload
-type ASRepPayloadWire = protocol.ASRepPayloadWire
+type ASRepPayloadWire = protocol.EncPackPayloadWire
 type ASRepPlain = protocol.ASRepPlain
 type TicketTGSPlain = protocol.TicketTGSPlain
 type AuthenticatorCTGSPlain = protocol.AuthenticatorCTGSPlain
@@ -107,8 +107,8 @@ func BuildTicketTGSPlain(c ASClientSecret, idTGS string, keyCTGS [8]byte, ts2 ui
 func BuildASRepPlain(keyCTGS [8]byte, idTGS string, ts2 uint32, lifetime uint32, ticketTGS []byte) ([]byte, error) {
 	return protocol.BuildASRepPlain(keyCTGS, idTGS, ts2, lifetime, ticketTGS)
 }
-func BuildASRepPayload(encPart []byte) ([]byte, error)       { return protocol.BuildASRepPayload(encPart) }
-func ParseASRepPayload(raw []byte) (ASRepPayloadWire, error) { return protocol.ParseASRepPayload(raw) }
+func BuildEncPack(encPart []byte) ([]byte, error)            { return protocol.BuildEncPack(encPart) }
+func ParseASRepPayload(raw []byte) (ASRepPayloadWire, error) { return protocol.ParseEncPack(raw) }
 
 func ParseTGSReqPayload(raw []byte) (TGSReqPayload, error) { return protocol.ParseTGSReqPayload(raw) }
 func DecodeTicketTGS(ticketCipher []byte, ktgs [8]byte) (TicketTGSPlain, error) {

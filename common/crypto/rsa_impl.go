@@ -131,6 +131,8 @@ func rsaVerifyDigest(hash []byte, sig []byte, pub *RSAKey) int32 {
 		return ErrRSAKeyInvalid
 	}
 	s := new(big.Int).SetBytes(sig)
+
+	// RSA 验签
 	m := rsaModExp(s, pub.E, pub.N)
 	if m == nil {
 		return ErrRSAVerifyFail

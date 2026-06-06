@@ -146,7 +146,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 		}
 
 		//peerADc 是从连接中提取的客户端 IP 地址，用于后续的处理。
-		//handleASReq 函数根据协议头、负载数据和客户端 IP 地址处理 AS 请求，并返回响应类型、响应负载和可能发生的错误。
+
 		respType, respPayload, respErr := s.handleASReq(h, payload, peerADc)
 		if respErr != nil {
 			code := krb.CodeFromError(respErr)
@@ -154,6 +154,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 			_ = s.writeError(conn, nextConnSeq(), code)
 			return
 		}
+
 		if err := transport.WritePacket(conn, respType, nextConnSeq(), uint32(time.Now().Unix()), respPayload); err != nil {
 			log.Errorf("[AS] write response failed remote=%s err=%v", remote, err)
 			return
@@ -164,6 +165,7 @@ func (s *Service) handleConnection(conn net.Conn) {
 	}
 }
 
+// handleASReq 处理 AS 请求，解析请求负载，验证客户端信息，生成 TGT 和 AS-REP 响应。
 func (s *Service) handleASReq(h krb.ProtocolHeader, payload []byte, peerADc uint32) (uint8, []byte, error) {
 	req, err := krb.ParseASReqPayload(payload)
 	if err != nil {
@@ -200,24 +202,29 @@ func (s *Service) handleASReq(h krb.ProtocolHeader, payload []byte, peerADc uint
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
 	}
 
+	//Ticket DES加密，使用AS服务器与TGS共享的密钥k_tgs加密，生成ticketCipher
 	ticketCipher, err := cryptoutil.EncryptDESCBC(s.state.Ktgs, ticketPlain)
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrDESPadding)
 		log.Errorf("[AS] encrypt TGT failed client=%s err=%v", clientID, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrDESPadding), err
 	}
+
+	// 生成AS-REP中的认证数据，包含keyCTGS、idTGS、ts2、票据有效期和ticketCipher
 	innerPlain, err := krb.BuildASRepPlain(keyCTGS, idTGS, ts2, s.Config.TicketLifetimeSec, ticketCipher)
 	if err != nil {
 		log.Warnf("[AS] build AS_REP plain failed client=%s err=%v", clientID, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err
 	}
+
+	//AS-REP DES加密，使用K_c加密
 	encPart, err := cryptoutil.EncryptDESCBC(secret.Kc, innerPlain)
 	if err != nil {
 		err := krb.ErrorFromCode(krb.ErrDESPadding)
 		log.Errorf("[AS] encrypt AS_REP failed client=%s err=%v", clientID, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.ErrDESPadding), err
 	}
-	resp, err := krb.BuildASRepPayload(encPart)
+	resp, err := krb.BuildEncPack(encPart)
 	if err != nil {
 		log.Warnf("[AS] build AS_REP payload failed client=%s err=%v", clientID, err)
 		return krb.MsgErr, krb.BuildErrorPayload(krb.CodeFromError(err)), err

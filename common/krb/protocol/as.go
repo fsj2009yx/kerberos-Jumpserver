@@ -71,7 +71,7 @@ func BuildASRepPlain(keyCTGS [8]byte, idTGS string, ts2 uint32, lifetime uint32,
 	return buf.Bytes(), nil
 }
 
-func BuildASRepPayload(encPart []byte) ([]byte, error) {
+func BuildEncPack(encPart []byte) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	tmp := make([]byte, 4)
 	binary.BigEndian.PutUint32(tmp, uint32(len(encPart)))
@@ -80,17 +80,17 @@ func BuildASRepPayload(encPart []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func ParseASRepPayload(raw []byte) (ASRepPayloadWire, error) {
+func ParseEncPack(raw []byte) (EncPackPayloadWire, error) {
 	c := NewCursor(raw)
 	cipherLen, err := c.ReadUint32()
 	if err != nil {
-		return ASRepPayloadWire{}, err
+		return EncPackPayloadWire{}, err
 	}
 	encPart, err := c.ReadBytes(int(cipherLen))
 	if err != nil {
-		return ASRepPayloadWire{}, err
+		return EncPackPayloadWire{}, err
 	}
-	return ASRepPayloadWire{
+	return EncPackPayloadWire{
 		CipherLen: cipherLen,
 		EncPart:   encPart,
 	}, nil

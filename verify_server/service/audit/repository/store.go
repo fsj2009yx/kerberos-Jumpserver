@@ -21,6 +21,7 @@ type Store struct {
 	lastHash string
 }
 
+// NewStore 创建一个新的Store实例，连接到指定路径的SQLite数据库，并确保数据库模式正确。
 func NewStore(path string) (*Store, error) {
 	if strings.TrimSpace(path) == "" {
 		path = defaultAuditDBFile

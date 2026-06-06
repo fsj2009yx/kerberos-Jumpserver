@@ -14,6 +14,7 @@ func (s *Service) lookupSSHTarget(id string) (config.SSHTarget, error) {
 	return s.audit.GetSSHTarget(id, true)
 }
 
+// checkTargetPermission checks if the clientID is allowed to access the target based on the target's BlockedClients list.
 func checkTargetPermission(clientID string, target config.SSHTarget) error {
 	for _, blocked := range target.BlockedClients {
 		if strings.EqualFold(blocked, clientID) {

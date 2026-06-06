@@ -24,6 +24,8 @@ func StartSSHSession(target config.SSHTarget, term string, cols, rows uint16) (*
 		term = "xterm-256color"
 	}
 	hostPort := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
+
+	// 获取 SSH 主机密钥回调函数，确保在连接 SSH 服务器时能够验证服务器的身份，防止中间人攻击等安全风险。
 	hostKeyCallback, err := sshHostKeyCallback(target)
 	if err != nil {
 		return nil, err
@@ -43,6 +45,8 @@ func StartSSHSession(target config.SSHTarget, term string, cols, rows uint16) (*
 		_ = client.Close()
 		return nil, err
 	}
+
+	//创建ssh Session，并启动输入输出流
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		_ = session.Close()
@@ -141,6 +145,8 @@ func sshAuthMethod(target config.SSHTarget) (ssh.AuthMethod, error) {
 	}
 }
 
+// sshSignal 将 uint8 类型的信号转换为 ssh.Signal 类型，以便在 SSH 会话中发送信号给远程服务器
+// 它根据输入的信号值返回对应的 SSH 信号字符串
 func sshSignal(sig uint8) ssh.Signal {
 	switch sig {
 	case 1:
@@ -154,6 +160,8 @@ func sshSignal(sig uint8) ssh.Signal {
 	}
 }
 
+// mergeReaders 作用是将多个 io.Reader 合并成一个 io.Reader
+// 它使用 io.Pipe 创建一个管道，并启动一个 goroutine 来复制每个 reader 的内容到管道的写端。当所有 reader 都完成后，管道的写端会被关闭，从而通知读取者没有更多数据可读。
 func mergeReaders(readers ...io.Reader) (io.Reader, func() error) {
 	pr, pw := io.Pipe()
 	var wg sync.WaitGroup

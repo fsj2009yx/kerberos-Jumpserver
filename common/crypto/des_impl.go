@@ -139,18 +139,25 @@ func newDESCtx(key [8]byte) *desCtx {
 func generateDESSubKeys(key [8]byte) [16]uint64 {
 	var out [16]uint64
 	key64 := binary.BigEndian.Uint64(key[:])
+
+	//64位密钥有一位奇偶校验位，经过PC1置换后得到56位有效密钥
 	key56 := permuteBits(key64, 64, desPC1[:])
 	c := uint32((key56 >> 28) & 0x0fffffff)
 	d := uint32(key56 & 0x0fffffff)
+
+	//做16轮左移
 	for i := 0; i < 16; i++ {
 		c = leftRotate28(c, desShifts[i])
 		d = leftRotate28(d, desShifts[i])
 		merged := (uint64(c) << 28) | uint64(d)
+
+		//置换2
 		out[i] = permuteBits(merged, 56, desPC2[:])
 	}
 	return out
 }
 
+// 28 位循环左移
 func leftRotate28(v uint32, shift uint8) uint32 {
 	s := uint(shift % 28)
 	v &= 0x0fffffff
@@ -179,7 +186,9 @@ func desEncryptBlock(block uint64, subKeys [16]uint64) uint64 {
 
 	//做16轮轮函数运算
 	for i := 0; i < 16; i++ {
-		l, r = r, l^desRound(r, subKeys[i])
+		temp := r
+		r = l ^ desRound(r, subKeys[i])
+		l = temp
 	}
 
 	//第16轮结束后，做左右交换
@@ -208,9 +217,12 @@ func desRound(r uint32, subKey uint64) uint32 {
 	expanded := permuteBits(uint64(r), 32, desE[:])
 	x := expanded ^ subKey
 	var out uint32
+
+	//S盒替换，将48位输入分成8组，每组6位，经过S盒替换后得到32位输出
 	for i := 0; i < 8; i++ {
 		shift := uint(42 - 6*i)
 		chunk := uint8((x >> shift) & 0x3f)
+		//row由6位中的第1位和第6位组成，col由中间4位组成
 		row := ((chunk & 0x20) >> 4) | (chunk & 0x01)
 		col := (chunk >> 1) & 0x0f
 		val := desSBoxes[i][int(row)*16+int(col)]

@@ -104,7 +104,7 @@ func BuildAPRepPayload(ts5 uint32, keyCV [8]byte) ([]byte, error) {
 	if err != nil {
 		return nil, errorFromCode(ErrDESPadding)
 	}
-	return BuildASRepPayload(cipherData)
+	return BuildEncPack(cipherData)
 }
 
 // ParseAPPReqPayload 解析AP-REQ消息的负载，返回一个APPReqPayload结构体和错误信息

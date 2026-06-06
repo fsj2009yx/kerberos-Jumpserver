@@ -45,6 +45,7 @@ func NewSHA256Ctx() *SHA256Ctx {
 	return ctx
 }
 
+// SHA256初始化
 func sha256Init(ctx *SHA256Ctx) int32 {
 	if ctx == nil {
 		return ErrSHA256Fail
@@ -58,6 +59,7 @@ func sha256Init(ctx *SHA256Ctx) int32 {
 	return KRBOK
 }
 
+// SHA256更新
 func sha256Update(ctx *SHA256Ctx, data []byte) int32 {
 	if ctx == nil {
 		return ErrSHA256Fail
@@ -71,6 +73,7 @@ func sha256Update(ctx *SHA256Ctx, data []byte) int32 {
 		ctx.bufLen += uint32(n)
 		data = data[n:]
 		if ctx.bufLen == 64 {
+			//sha256压缩函数处理一个512位（64字节）的数据块
 			sha256Compress(&ctx.h, ctx.buf[:])
 			ctx.bufLen = 0
 		}
@@ -111,19 +114,27 @@ func Sum256(data []byte) [32]byte {
 
 func sha256Compress(h *[8]uint32, block []byte) {
 	var w [64]uint32
+
+	// 将512位（64字节）的数据块分成16个32位的字，并扩展成64个字
 	for i := 0; i < 16; i++ {
 		w[i] = uint32(block[i*4])<<24 |
 			uint32(block[i*4+1])<<16 |
 			uint32(block[i*4+2])<<8 |
 			uint32(block[i*4+3])
 	}
+
+	//字扩展：根据前16个字计算出后48个字
 	for i := 16; i < 64; i++ {
 		s0 := rotr32(w[i-15], 7) ^ rotr32(w[i-15], 18) ^ (w[i-15] >> 3)
 		s1 := rotr32(w[i-2], 17) ^ rotr32(w[i-2], 19) ^ (w[i-2] >> 10)
 		w[i] = w[i-16] + s0 + w[i-7] + s1
 	}
+
+	//取哈希值
 	a, b, c, d := h[0], h[1], h[2], h[3]
 	e, f, g, hh := h[4], h[5], h[6], h[7]
+
+	//SHA256核心轮函数
 	for i := 0; i < 64; i++ {
 		s1 := rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25)
 		ch := (e & f) ^ (^e & g)
