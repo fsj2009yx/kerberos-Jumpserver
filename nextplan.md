@@ -172,7 +172,7 @@ Rows(uint16)
 
 V 的 `config.json` 增加 `ssh_targets`。
 
-示例：
+配置示例（`ssh_user` 和 `REPLACE_WITH_SSH_PASSWORD` 为占位符，请按目标主机分别配置）：
 
 ```json
 {

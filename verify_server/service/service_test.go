@@ -112,7 +112,7 @@ func TestCleanupPTYClosesConnectionKeepsKerberosSessionAndAudits(t *testing.T) {
 		ADc:          1,
 		TargetID:     "prod-1",
 		TargetHost:   "10.0.0.11:22",
-		SSHUser:      "ssh_user",
+		SSHUser:      "test-user",
 		PtySessionID: 9,
 		PTY:          &pty.Session{PTY: ptyHandle},
 		Ctx:          ctx,

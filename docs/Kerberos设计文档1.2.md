@@ -370,7 +370,7 @@ struct Ker_Header {
 
 > TGS 节点额外包含 `"k_v_path"` 字段（与 V 共享的长期密钥路径）；V 节点额外包含 `"k_v_path"`、`"cli_whitelist"`、`"audit_db_file"` 和 `"ssh_targets"` 字段。Client 节点需要 `"as_host"`、`"as_port"`、`"tgs_host"`、`"tgs_port"`、`"v_host"`、`"v_port"`、`"v_webui_host"`、`"v_webui_port"`、`"v_cert_path"` 等远端地址与证书配置。Client 认证到 V 后，通过 V Web API 拉取可选 SSH 节点列表；V 侧 `ssh_targets` 是授权和连接的唯一权威来源。
 
-V 作为跳板机时，后端 SSH 目标只配置在 V 侧。简化部署可统一使用 SSH 用户 `ssh_user` 和密码 `REPLACE_WITH_SSH_PASSWORD`：
+V 作为跳板机时，后端 SSH 目标只配置在 V 侧。下面的 `ssh_user` 和 `REPLACE_WITH_SSH_PASSWORD` 为占位符，请按目标主机分别配置实际登录凭据：
 
 ```json
 {
