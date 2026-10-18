@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -29,8 +31,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Windows cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcc-mingw-w64-x86-64
+
+      - name: Verify SQLite support
+        env:
+          CGO_ENABLED: "1"
+          CC: gcc
+        run: go test ./verify_server/service/...
+
       - name: Build Go server binaries
-        run: make build
+        run: |
+          make linux CGO_ENABLED=1 CC=gcc
+          make windows CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc
 
       - name: Validate repository certificates
         run: |
@@ -72,6 +87,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -143,7 +160,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force release-assets | Out-Null
           Get-ChildItem -Path client/web/dist -File |
-            Where-Object { $_.Extension -in ".exe", ".zip", ".blockmap", ".yml" } |
+            Where-Object { $_.Extension -in ".exe", ".zip", ".blockmap" -or $_.Name -eq "latest.yml" } |
             Copy-Item -Destination release-assets -Force
 
       - name: Upload Electron artifacts
@@ -163,25 +180,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
 
-      - name: Download release artifacts
+      - name: Download Go artifacts from this run
         uses: actions/download-artifact@v4
         with:
+          name: go-and-certs
           path: release-assets
-          merge-multiple: true
+
+      - name: Download Electron artifacts from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-client
+          path: release-assets
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          Fresh Linux and Windows server builds and an updated Windows client.
+
+          Local deployment settings and personal contributor details are excluded from this release.
+          EOF
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release-assets/* --clobber \
               --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           else
             gh release create "$RELEASE_TAG" release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
+              --verify-tag \
               --title "$RELEASE_TAG" \
-              --generate-notes
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           fi

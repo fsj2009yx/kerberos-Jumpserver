@@ -1,6 +1,6 @@
 {
   "name": "kerberos-web-client",
-  "version": "0.1.0",
+  "version": "0.3.2",
   "private": true,
   "description": "Electron + TypeScript web client skeleton",
   "main": "dist/main.js",
